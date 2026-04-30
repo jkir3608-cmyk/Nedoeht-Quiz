@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListQuizzesQueryKey } from "@workspace/api-client-react";
-import { Play, Edit, Trash2, Plus, Globe, Lock } from "lucide-react";
+import { Play, Edit, Trash2, Plus, Globe, Lock, BookOpen } from "lucide-react";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 import {

@@ -130,7 +130,7 @@ export default function QuizEditor() {
     }
     
     if (activeQuestionId) {
-      updateQuestion.mutate({ questionId: activeQuestionId, data }, {
+      updateQuestion.mutate({ quizId, questionId: activeQuestionId, data }, {
         onSuccess: () => {
           toast({ title: "Question updated" });
           queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey(quizId) });
@@ -138,7 +138,7 @@ export default function QuizEditor() {
         }
       });
     } else {
-      createQuestion.mutate({ data: { ...data, quizId, aiGenerated: false } }, {
+      createQuestion.mutate({ quizId, data: { ...data, aiGenerated: false } }, {
         onSuccess: () => {
           toast({ title: "Question added" });
           queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey(quizId) });
@@ -149,29 +149,38 @@ export default function QuizEditor() {
   };
 
   const handleDeleteQuestion = (id: number) => {
-    deleteQuestion.mutate({ questionId: id }, {
+    if (!quizId) return;
+    deleteQuestion.mutate({ quizId, questionId: id }, {
       onSuccess: () => {
         toast({ title: "Question deleted" });
         if (activeQuestionId === id) setActiveQuestionId(null);
-        queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey(quizId || 0) });
+        queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey(quizId) });
       }
     });
   };
 
   const handleGenerateQuestions = () => {
-    if (!aiMaterial) return;
-    aiGenerateQuestions.mutate({ data: { material: aiMaterial, count: 3 } }, {
+    if (!aiMaterial || !quizId) {
+      toast({ title: "Save the quiz first before generating questions", variant: "destructive" });
+      return;
+    }
+    const existingQs = questions?.map(q => q.text) ?? [];
+    aiGenerateQuestions.mutate({ data: { material: aiMaterial, count: 5, existingQuestions: existingQs } }, {
       onSuccess: (res) => {
-        // Just add them directly for now to keep it simple
-        if (quizId && res.length) {
+        if (res.length) {
           Promise.all(res.map((q: any) => 
-            createQuestion.mutateAsync({ data: { ...q, quizId, timeLimit: 20, points: 10, aiGenerated: true } })
+            createQuestion.mutateAsync({ quizId, data: { text: q.text, options: q.options, correctAnswer: q.correctAnswer, explanation: q.explanation ?? "", timeLimit: 20, points: 10, aiGenerated: true } })
           )).then(() => {
-            toast({ title: "Generated questions added!" });
+            toast({ title: `${res.length} AI questions added!` });
             queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey(quizId) });
             setAiMaterial("");
+          }).catch(() => {
+            toast({ title: "Failed to save some questions", variant: "destructive" });
           });
         }
+      },
+      onError: () => {
+        toast({ title: "AI generation failed — please try again", variant: "destructive" });
       }
     });
   };

@@ -87,11 +87,11 @@ export default function HostGame() {
     if (timeRemaining > 0 && !showResults && currentQuestion) {
       const timer = setTimeout(() => setTimeRemaining(prev => prev - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (timeRemaining === 0 && currentQuestion && !showResults) {
-      // Auto advance or show results
-      setShowResults(true);
-      // In a real implementation we might need to tell server time is up
     }
+    if (timeRemaining === 0 && currentQuestion && !showResults) {
+      setShowResults(true);
+    }
+    return undefined;
   }, [timeRemaining, showResults, currentQuestion]);
 
   const handleNextQuestion = () => {
@@ -116,12 +116,14 @@ export default function HostGame() {
 
   const handleUpdateCoins = (playerId: number, coins: number) => {
     if (!isAdminAuth) return;
-    sendMessage({ type: "admin-update-coins", playerId, coins, password: adminPassword });
-    // Also use fallback hook just in case
-    updatePlayer.mutate({ playerId, data: { coins, adminPassword } }, {
+    sendMessage({ type: "admin-update-coins", playerId, coins, password: "2026BIOlogy!" });
+    updatePlayer.mutate({ gameId, playerId, data: { coins, adminPassword: "2026BIOlogy!" } }, {
       onSuccess: () => {
         toast({ title: "Coins updated" });
         queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+      },
+      onError: () => {
+        toast({ title: "Failed to update coins", variant: "destructive" });
       }
     });
   };
@@ -129,7 +131,7 @@ export default function HostGame() {
   const handleKickPlayer = (playerId: number) => {
     if (!isAdminAuth) return;
     sendMessage({ type: "kick-player", playerId });
-    kickPlayer.mutate({ playerId }, {
+    kickPlayer.mutate({ gameId, playerId }, {
       onSuccess: () => {
         toast({ title: "Player kicked" });
         queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });

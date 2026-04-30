@@ -4,7 +4,7 @@ import { useGetDashboardStats, useGetRecentGames, useListQuizzes } from "@worksp
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Play, Plus, BookOpen, Users, Activity, Clock } from "lucide-react";
+import { Play, Plus, BookOpen, Users, Activity, Clock, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
 
@@ -24,6 +24,9 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-1">Here's what's happening with your quizzes.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button asChild variant="ghost" className="gap-2 text-muted-foreground hover:text-primary">
+            <Link href="/admin"><ShieldAlert className="w-4 h-4" /> Admin</Link>
+          </Button>
           <Button asChild variant="outline">
             <Link href="/quizzes">My Library</Link>
           </Button>
