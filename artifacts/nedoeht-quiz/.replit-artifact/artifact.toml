@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Nedoeht-Quiz"
+version = "1.0.0"
+id = "artifacts/nedoeht-quiz"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24815
+
+[services.development]
+run = "pnpm --filter @workspace/nedoeht-quiz run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/nedoeht-quiz", "run", "build" ]
+publicDir = "artifacts/nedoeht-quiz/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24815"
+BASE_PATH = "/"

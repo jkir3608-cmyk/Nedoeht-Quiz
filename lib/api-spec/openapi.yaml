@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Nedoeht-Quiz API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: quizzes
+    description: Quiz management
+  - name: questions
+    description: Question management
+  - name: ai
+    description: AI-powered generation
+  - name: games
+    description: Game session management
+  - name: players
+    description: Player management
+  - name: dashboard
+    description: Dashboard and stats
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +38,546 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterBody"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "409":
+          description: Username already taken
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not authenticated
+
+  /quizzes:
+    get:
+      operationId: listQuizzes
+      tags: [quizzes]
+      summary: List all quizzes for the current user
+      responses:
+        "200":
+          description: List of quizzes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Quiz"
+    post:
+      operationId: createQuiz
+      tags: [quizzes]
+      summary: Create a new quiz
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuizBody"
+      responses:
+        "201":
+          description: Quiz created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quiz"
+
+  /quizzes/public:
+    get:
+      operationId: listPublicQuizzes
+      tags: [quizzes]
+      summary: List public quizzes (discovery)
+      responses:
+        "200":
+          description: Public quizzes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Quiz"
+
+  /quizzes/{quizId}:
+    get:
+      operationId: getQuiz
+      tags: [quizzes]
+      summary: Get a quiz by ID
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quiz details with questions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizWithQuestions"
+        "404":
+          description: Not found
+    put:
+      operationId: updateQuiz
+      tags: [quizzes]
+      summary: Update a quiz
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuizBody"
+      responses:
+        "200":
+          description: Updated quiz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quiz"
+    delete:
+      operationId: deleteQuiz
+      tags: [quizzes]
+      summary: Delete a quiz
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /quizzes/{quizId}/questions:
+    get:
+      operationId: listQuestions
+      tags: [questions]
+      summary: List questions for a quiz
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Question"
+    post:
+      operationId: createQuestion
+      tags: [questions]
+      summary: Add a question to a quiz
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuestionBody"
+      responses:
+        "201":
+          description: Created question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+
+  /quizzes/{quizId}/questions/{questionId}:
+    put:
+      operationId: updateQuestion
+      tags: [questions]
+      summary: Update a question
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuestionBody"
+      responses:
+        "200":
+          description: Updated question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+    delete:
+      operationId: deleteQuestion
+      tags: [questions]
+      summary: Delete a question
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /ai/generate-questions:
+    post:
+      operationId: aiGenerateQuestions
+      tags: [ai]
+      summary: Generate questions using AI from material
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiGenerateQuestionsBody"
+      responses:
+        "200":
+          description: Generated questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GeneratedQuestion"
+
+  /ai/generate-explanation:
+    post:
+      operationId: aiGenerateExplanation
+      tags: [ai]
+      summary: Generate explanation for a question using AI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiGenerateExplanationBody"
+      responses:
+        "200":
+          description: Generated explanation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiExplanationResponse"
+
+  /games:
+    post:
+      operationId: createGame
+      tags: [games]
+      summary: Create a new game session (host)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGameBody"
+      responses:
+        "201":
+          description: Game created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+
+  /games/code/{code}:
+    get:
+      operationId: getGameByCode
+      tags: [games]
+      summary: Get game by join code
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Game info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+        "404":
+          description: Game not found
+
+  /games/{gameId}:
+    get:
+      operationId: getGame
+      tags: [games]
+      summary: Get game by ID
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Game with players
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameWithPlayers"
+        "404":
+          description: Not found
+
+  /games/{gameId}/join:
+    post:
+      operationId: joinGame
+      tags: [games]
+      summary: Join a game as a player
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinGameBody"
+      responses:
+        "200":
+          description: Joined game
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+
+  /games/{gameId}/start:
+    post:
+      operationId: startGame
+      tags: [games]
+      summary: Start the game (host only)
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Game started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+
+  /games/{gameId}/end:
+    post:
+      operationId: endGame
+      tags: [games]
+      summary: End the game (host only)
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Game ended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Game"
+
+  /games/{gameId}/players:
+    get:
+      operationId: listPlayers
+      tags: [players]
+      summary: List players in a game
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Player"
+
+  /games/{gameId}/players/{playerId}:
+    patch:
+      operationId: updatePlayer
+      tags: [players]
+      summary: Update player coins (admin/host)
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: playerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlayerBody"
+      responses:
+        "200":
+          description: Updated player
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+    delete:
+      operationId: kickPlayer
+      tags: [players]
+      summary: Kick a player from the game (host/admin)
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: playerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player kicked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard stats for the current user
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/recent-games:
+    get:
+      operationId: getRecentGames
+      tags: [dashboard]
+      summary: Get recent games for the current user
+      responses:
+        "200":
+          description: Recent games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecentGame"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +588,424 @@ components:
       required:
         - status
 
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    RegisterBody:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        displayName:
+          type: string
+      required:
+        - username
+        - password
+        - displayName
+
+    LoginBody:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+        avatarColor:
+          type: string
+        quizCount:
+          type: integer
+        gameCount:
+          type: integer
+      required:
+        - id
+        - username
+        - displayName
+        - avatarColor
+
+    Quiz:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        coverColor:
+          type: string
+        questionCount:
+          type: integer
+        playCount:
+          type: integer
+        isPublic:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - questionCount
+        - playCount
+        - isPublic
+        - createdAt
+        - updatedAt
+
+    QuizWithQuestions:
+      allOf:
+        - $ref: "#/components/schemas/Quiz"
+        - type: object
+          properties:
+            questions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Question"
+          required:
+            - questions
+
+    CreateQuizBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        coverColor:
+          type: string
+        isPublic:
+          type: boolean
+      required:
+        - title
+
+    UpdateQuizBody:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        coverColor:
+          type: string
+        isPublic:
+          type: boolean
+
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+        quizId:
+          type: integer
+        text:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: integer
+          description: Index of the correct option (0-3)
+        explanation:
+          type: string
+        timeLimit:
+          type: integer
+          description: Time limit in seconds
+        points:
+          type: integer
+        aiGenerated:
+          type: boolean
+        orderIndex:
+          type: integer
+      required:
+        - id
+        - quizId
+        - text
+        - options
+        - correctAnswer
+        - timeLimit
+        - points
+        - aiGenerated
+        - orderIndex
+
+    CreateQuestionBody:
+      type: object
+      properties:
+        text:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          maxItems: 4
+        correctAnswer:
+          type: integer
+        explanation:
+          type: string
+        timeLimit:
+          type: integer
+          default: 30
+        points:
+          type: integer
+          default: 100
+        aiGenerated:
+          type: boolean
+          default: false
+      required:
+        - text
+        - options
+        - correctAnswer
+
+    UpdateQuestionBody:
+      type: object
+      properties:
+        text:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: integer
+        explanation:
+          type: string
+        timeLimit:
+          type: integer
+        points:
+          type: integer
+
+    AiGenerateQuestionsBody:
+      type: object
+      properties:
+        material:
+          type: string
+          description: The source material to generate questions from
+        count:
+          type: integer
+          default: 5
+          description: How many questions to generate
+        existingQuestions:
+          type: array
+          items:
+            type: string
+          description: Text of existing questions to avoid duplicating
+      required:
+        - material
+
+    GeneratedQuestion:
+      type: object
+      properties:
+        text:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: integer
+        explanation:
+          type: string
+      required:
+        - text
+        - options
+        - correctAnswer
+        - explanation
+
+    AiGenerateExplanationBody:
+      type: object
+      properties:
+        questionText:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correctAnswer:
+          type: integer
+      required:
+        - questionText
+        - options
+        - correctAnswer
+
+    AiExplanationResponse:
+      type: object
+      properties:
+        explanation:
+          type: string
+      required:
+        - explanation
+
+    Game:
+      type: object
+      properties:
+        id:
+          type: integer
+        quizId:
+          type: integer
+        hostId:
+          type: integer
+        code:
+          type: string
+        status:
+          type: string
+          enum: [waiting, playing, ended]
+        skillLuckScale:
+          type: integer
+          minimum: 1
+          maximum: 5
+        playerCount:
+          type: integer
+        quizTitle:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - quizId
+        - hostId
+        - code
+        - status
+        - skillLuckScale
+        - playerCount
+        - createdAt
+
+    GameWithPlayers:
+      allOf:
+        - $ref: "#/components/schemas/Game"
+        - type: object
+          properties:
+            players:
+              type: array
+              items:
+                $ref: "#/components/schemas/Player"
+            quiz:
+              $ref: "#/components/schemas/QuizWithQuestions"
+          required:
+            - players
+
+    CreateGameBody:
+      type: object
+      properties:
+        quizId:
+          type: integer
+        skillLuckScale:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+      required:
+        - quizId
+
+    JoinGameBody:
+      type: object
+      properties:
+        nickname:
+          type: string
+      required:
+        - nickname
+
+    Player:
+      type: object
+      properties:
+        id:
+          type: integer
+        gameId:
+          type: integer
+        nickname:
+          type: string
+        coins:
+          type: integer
+        correctAnswers:
+          type: integer
+        totalAnswers:
+          type: integer
+        isKicked:
+          type: boolean
+        avatarColor:
+          type: string
+        joinedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - gameId
+        - nickname
+        - coins
+        - correctAnswers
+        - totalAnswers
+        - isKicked
+        - avatarColor
+        - joinedAt
+
+    UpdatePlayerBody:
+      type: object
+      properties:
+        coins:
+          type: integer
+        adminPassword:
+          type: string
+
+    DashboardStats:
+      type: object
+      properties:
+        totalQuizzes:
+          type: integer
+        totalGamesHosted:
+          type: integer
+        totalQuestions:
+          type: integer
+        totalPlayersHosted:
+          type: integer
+      required:
+        - totalQuizzes
+        - totalGamesHosted
+        - totalQuestions
+        - totalPlayersHosted
+
+    RecentGame:
+      type: object
+      properties:
+        id:
+          type: integer
+        quizTitle:
+          type: string
+        playerCount:
+          type: integer
+        status:
+          type: string
+        skillLuckScale:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - quizTitle
+        - playerCount
+        - status
+        - skillLuckScale
+        - createdAt
