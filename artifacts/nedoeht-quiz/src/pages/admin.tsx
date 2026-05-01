@@ -6,11 +6,71 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { useGameWebSocket } from "@/hooks/use-game";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, Coins, Trash2, ChevronLeft, Users, Loader2 } from "lucide-react";
+import { ShieldAlert, Coins, Trash2, ChevronLeft, Users, Loader2, Clock } from "lucide-react";
 import { format } from "date-fns";
 
 const ADMIN_PASSWORD = "2026BIOlogy!";
+
+function formatTime(s: number) {
+  const m = Math.floor(Math.max(0, s) / 60);
+  const sec = Math.max(0, s) % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function TimerControls({ gameId }: { gameId: number }) {
+  const { toast } = useToast();
+  const { sendMessage, isConnected } = useGameWebSocket(gameId, "host");
+  const [newSeconds, setNewSeconds] = useState("");
+
+  const handleSet = (e: React.FormEvent) => {
+    e.preventDefault();
+    const secs = parseInt(newSeconds);
+    if (isNaN(secs) || secs < 0) return;
+    sendMessage({ type: "admin-adjust-timer", password: ADMIN_PASSWORD, newSeconds: secs });
+    toast({ title: `Timer set to ${formatTime(secs)}` });
+    setNewSeconds("");
+  };
+
+  return (
+    <div className="space-y-3 p-4 bg-muted/30 rounded-xl border">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 font-bold text-sm">
+          <Clock className="w-4 h-4 text-primary" /> Adjust Game Timer
+        </div>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${isConnected ? "bg-green-500/20 text-green-400" : "bg-muted text-muted-foreground"}`}>
+          {isConnected ? "Connected" : "Connecting…"}
+        </span>
+      </div>
+      <form onSubmit={handleSet} className="flex gap-2">
+        <Input
+          type="number"
+          placeholder="Seconds (e.g. 300)"
+          value={newSeconds}
+          onChange={e => setNewSeconds(e.target.value)}
+          className="flex-1 h-9 text-sm"
+        />
+        <Button type="submit" size="sm">Set</Button>
+      </form>
+      <div className="flex flex-wrap gap-2">
+        {[60, 120, 300, 480, 600].map(s => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => {
+              sendMessage({ type: "admin-adjust-timer", password: ADMIN_PASSWORD, newSeconds: s });
+              toast({ title: `Timer set to ${formatTime(s)}` });
+            }}
+            className="px-3 py-1 text-xs rounded-full border border-border hover:border-primary/50 hover:text-primary transition-all"
+          >
+            {formatTime(s)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPanel() {
   const { isLoading: authLoading } = useRequireAuth();
@@ -150,6 +210,14 @@ export default function AdminPanel() {
                 </Button>
                 <h2 className="text-xl font-bold">Player Management</h2>
               </div>
+
+              {(() => {
+                const selectedGame = recentGames?.find(g => g.id === selectedGameId);
+                if (selectedGame?.status === "playing") {
+                  return <TimerControls gameId={selectedGameId!} />;
+                }
+                return null;
+              })()}
 
               {playersLoading ? (
                 <div className="flex items-center gap-2 text-muted-foreground">

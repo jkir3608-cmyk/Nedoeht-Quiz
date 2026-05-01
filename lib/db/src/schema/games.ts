@@ -29,6 +29,7 @@ export const gamesTable = pgTable("games", {
   status: gameStatusEnum("status").notNull().default("waiting"),
   skillLuckScale: integer("skill_luck_scale").notNull().default(3),
   currentQuestionIndex: integer("current_question_index").notNull().default(-1),
+  duration: integer("duration").notNull().default(480),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

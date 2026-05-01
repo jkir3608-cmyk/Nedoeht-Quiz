@@ -1,17 +1,44 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
 import { useGameWebSocket } from "@/hooks/use-game";
-import { useGetGame, useListPlayers, useUpdatePlayer, useKickPlayer, getGetGameQueryKey, getListPlayersQueryKey } from "@workspace/api-client-react";
+import {
+  useGetGame,
+  useListPlayers,
+  useUpdatePlayer,
+  useKickPlayer,
+  getGetGameQueryKey,
+  getListPlayersQueryKey,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
-import { Coins, Loader2, Check, X, ShieldAlert, Trash2 } from "lucide-react";
+import { Coins, Loader2, Check, X, ShieldAlert, Trash2, Clock } from "lucide-react";
 
 const ADMIN_PASSWORD = "2026BIOlogy!";
+
+function formatTime(seconds: number) {
+  const m = Math.floor(Math.max(0, seconds) / 60);
+  const s = Math.max(0, seconds) % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+const OPTION_COLORS = [
+  "bg-red-500 hover:bg-red-600 border-b-4 border-red-700 active:border-b-0 active:translate-y-1",
+  "bg-blue-500 hover:bg-blue-600 border-b-4 border-blue-700 active:border-b-0 active:translate-y-1",
+  "bg-yellow-500 hover:bg-yellow-600 border-b-4 border-yellow-700 active:border-b-0 active:translate-y-1",
+  "bg-green-500 hover:bg-green-600 border-b-4 border-green-700 active:border-b-0 active:translate-y-1",
+];
+
+const OPTION_SHAPES = ["▲", "◆", "●", "■"];
 
 export default function PlayGame() {
   const params = useParams();
@@ -22,34 +49,233 @@ export default function PlayGame() {
   const queryClient = useQueryClient();
 
   const { data: game, isLoading: gameLoading } = useGetGame(gameId, {
-    query: { enabled: !!gameId, queryKey: getGetGameQueryKey(gameId) }
+    query: { enabled: !!gameId, queryKey: getGetGameQueryKey(gameId) },
   });
 
-  const { messages, isConnected, sendMessage } = useGameWebSocket(gameId, "player", playerId);
+  const { messages, isConnected, sendMessage } = useGameWebSocket(
+    gameId,
+    "player",
+    playerId,
+  );
 
-  const [gameState, setGameState] = useState<"waiting" | "question" | "answered" | "result" | "chests">("waiting");
-  const [currentQuestion, setCurrentQuestion] = useState<any>(null);
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [totalQuestions, setTotalQuestions] = useState(0);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-  const [timeLimit, setTimeLimit] = useState(0);
-  const [coins, setCoins] = useState(0);
+  type GamePhase =
+    | "waiting"
+    | "question"
+    | "answered"
+    | "result-correct"
+    | "result-wrong"
+    | "chests"
+    | "chest-opened"
+    | "ended";
+
+  const [phase, setPhase] = useState<GamePhase>("waiting");
+  const [currentQuestion, setCurrentQuestion] = useState<{
+    id: number;
+    text: string;
+    options: string[];
+    timeLimit: number;
+  } | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [result, setResult] = useState<{correct: boolean, coinsEarned: number, explanation: string, correctAnswer: number} | null>(null);
-  const [chestResult, setChestResult] = useState<{reward: number, newTotal: number} | null>(null);
+  const [result, setResult] = useState<{
+    correct: boolean;
+    timedOut: boolean;
+    coinsEarned: number;
+    explanation: string;
+    correctAnswer: number;
+    correctAnswerText: string;
+    rewardType: string;
+  } | null>(null);
+  const [chestResult, setChestResult] = useState<{
+    reward: { label: string; coinsChange: number };
+    newTotal: number;
+    stealInfo: { fromNickname: string; stolen: number } | null;
+  } | null>(null);
+  const [coins, setCoins] = useState(0);
+  const [questionTimer, setQuestionTimer] = useState(0);
+  const [questionTimerMax, setQuestionTimerMax] = useState(30);
+  const [wrongCountdown, setWrongCountdown] = useState(0);
+  const [gameTimeRemaining, setGameTimeRemaining] = useState<number | null>(null);
+  const [endsAt, setEndsAt] = useState<number | null>(null);
   const [chestsOpened, setChestsOpened] = useState(false);
+  const [openedChestIdx, setOpenedChestIdx] = useState<number | null>(null);
+
+  const questionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wrongCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Admin panel state
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
   const [editingCoins, setEditingCoins] = useState<Record<number, string>>({});
+  const [newTimerSecs, setNewTimerSecs] = useState("");
 
   const { data: players } = useListPlayers(gameId, {
-    query: { queryKey: getListPlayersQueryKey(gameId), enabled: adminAuthed && adminOpen }
+    query: {
+      queryKey: getListPlayersQueryKey(gameId),
+      enabled: adminAuthed && adminOpen,
+    },
   });
   const updatePlayer = useUpdatePlayer();
   const kickPlayer = useKickPlayer();
+
+  const requestNextQuestion = useCallback(() => {
+    sendMessage({ type: "request-question" });
+    setPhase("waiting");
+    setCurrentQuestion(null);
+    setSelectedAnswer(null);
+    setResult(null);
+    setChestResult(null);
+    setChestsOpened(false);
+    setOpenedChestIdx(null);
+    if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
+    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+  }, [sendMessage]);
+
+  const startQuestionTimer = useCallback((timeLimit: number) => {
+    if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    setQuestionTimer(timeLimit);
+    setQuestionTimerMax(timeLimit);
+    questionTimerRef.current = setInterval(() => {
+      setQuestionTimer((prev) => {
+        if (prev <= 1) {
+          clearInterval(questionTimerRef.current!);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    if (questionTimer === 0 && phase === "question" && currentQuestion) {
+      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+      setPhase("answered");
+      sendMessage({
+        type: "answer",
+        questionId: currentQuestion.id,
+        answerIndex: -1,
+        timedOut: true,
+        playerId,
+      });
+    }
+  }, [questionTimer, phase, currentQuestion, sendMessage, playerId]);
+
+  const startWrongCountdown = useCallback(() => {
+    if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
+    setWrongCountdown(5);
+    wrongCountdownRef.current = setInterval(() => {
+      setWrongCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(wrongCountdownRef.current!);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  useEffect(() => {
+    if (endsAt) {
+      if (gameTimerRef.current) clearInterval(gameTimerRef.current);
+      gameTimerRef.current = setInterval(() => {
+        const remaining = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+        setGameTimeRemaining(remaining);
+      }, 500);
+      return () => {
+        if (gameTimerRef.current) clearInterval(gameTimerRef.current);
+      };
+    }
+    return undefined;
+  }, [endsAt]);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const msg = messages[messages.length - 1];
+
+    if (msg.type === "game-started") {
+      setEndsAt((msg as any).endsAt);
+      setGameTimeRemaining((msg as any).remainingSeconds);
+      requestNextQuestion();
+    } else if ((msg as any).type === "timer") {
+      setGameTimeRemaining((msg as any).remaining);
+      setEndsAt((msg as any).endsAt);
+    } else if (msg.type === "question") {
+      const q = (msg as any).question;
+      setCurrentQuestion(q);
+      setCoins((msg as any).playerCoins ?? coins);
+      setPhase("question");
+      setSelectedAnswer(null);
+      setResult(null);
+      startQuestionTimer(q.timeLimit ?? 30);
+    } else if (msg.type === "answer-result") {
+      if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+      const r = msg as any;
+      setResult({
+        correct: r.correct,
+        timedOut: r.timedOut ?? false,
+        coinsEarned: r.coinsEarned,
+        explanation: r.explanation,
+        correctAnswer: r.correctAnswer,
+        correctAnswerText: r.correctAnswerText,
+        rewardType: r.rewardType,
+      });
+      setCoins(r.newTotal);
+      if (r.correct) {
+        setPhase("result-correct");
+        autoAdvanceRef.current = setTimeout(() => {
+          requestNextQuestion();
+        }, 2500);
+      } else {
+        setPhase("result-wrong");
+        startWrongCountdown();
+      }
+    } else if (msg.type === "show-chests") {
+      setPhase("chests");
+      setChestsOpened(false);
+      setOpenedChestIdx(null);
+      setChestResult(null);
+      if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
+    } else if (msg.type === "chest-result") {
+      const r = msg as any;
+      setChestResult({ reward: r.reward, newTotal: r.newTotal, stealInfo: r.stealInfo });
+      setCoins(r.newTotal);
+      setChestsOpened(true);
+      setPhase("chest-opened");
+      autoAdvanceRef.current = setTimeout(() => {
+        requestNextQuestion();
+      }, 3000);
+    } else if (msg.type === "game-ended") {
+      setLocation(`/results/${gameId}`);
+    } else if (msg.type === "player-kicked" && (msg as any).playerId === playerId) {
+      toast({ title: "You were removed from the game", variant: "destructive" });
+      setLocation("/");
+    } else if (msg.type === "coins-updated" && (msg as any).playerId === playerId) {
+      setCoins((msg as any).coins);
+    }
+  }, [messages, gameId, playerId, setLocation, toast, requestNextQuestion, startQuestionTimer, startWrongCountdown, coins]);
+
+  const handleAnswer = (idx: number) => {
+    if (phase !== "question" || !currentQuestion) return;
+    if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    setSelectedAnswer(idx);
+    setPhase("answered");
+    sendMessage({
+      type: "answer",
+      questionId: currentQuestion.id,
+      answerIndex: idx,
+      timedOut: false,
+      playerId,
+    });
+  };
+
+  const handleOpenChest = (idx: number) => {
+    if (phase !== "chests" || chestsOpened) return;
+    setOpenedChestIdx(idx);
+    sendMessage({ type: "open-chest", chestIndex: idx, playerId });
+  };
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,140 +290,94 @@ export default function PlayGame() {
   const handleSaveCoins = (pid: number) => {
     const val = parseInt(editingCoins[pid] ?? "0");
     if (isNaN(val)) return;
-    updatePlayer.mutate({ gameId, playerId: pid, data: { coins: val, adminPassword: ADMIN_PASSWORD } }, {
-      onSuccess: () => {
-        toast({ title: "Coins updated" });
-        queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
-        setEditingCoins(prev => { const n = { ...prev }; delete n[pid]; return n; });
+    updatePlayer.mutate(
+      { gameId, playerId: pid, data: { coins: val, adminPassword: ADMIN_PASSWORD } },
+      {
+        onSuccess: () => {
+          toast({ title: "Coins updated" });
+          queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+          setEditingCoins((prev) => {
+            const n = { ...prev };
+            delete n[pid];
+            return n;
+          });
+        },
+        onError: () => toast({ title: "Failed", variant: "destructive" }),
       },
-      onError: () => toast({ title: "Failed to update coins", variant: "destructive" }),
-    });
+    );
   };
 
   const handleKick = (pid: number) => {
-    kickPlayer.mutate({ gameId, playerId: pid }, {
-      onSuccess: () => {
-        toast({ title: "Player removed" });
-        queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+    kickPlayer.mutate(
+      { gameId, playerId: pid },
+      {
+        onSuccess: () => {
+          toast({ title: "Player removed" });
+          queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+        },
       },
-    });
+    );
   };
 
-  // Handle incoming websocket messages
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const msg = messages[messages.length - 1];
-    
-    if (msg.type === "question") {
-      setCurrentQuestion(msg.question);
-      setQuestionIndex(msg.questionIndex);
-      setTotalQuestions(msg.totalQuestions);
-      setTimeLimit(msg.timeLimit);
-      setTimeRemaining(msg.timeLimit);
-      setGameState("question");
-      setSelectedAnswer(null);
-      setResult(null);
-    } else if (msg.type === "answer-result") {
-      setResult({
-        correct: msg.correct,
-        coinsEarned: msg.coinsEarned,
-        explanation: msg.explanation,
-        correctAnswer: msg.correctAnswer
-      });
-      setGameState("result");
-    } else if (msg.type === "show-chests") {
-      setGameState("chests");
-      setChestsOpened(false);
-      setChestResult(null);
-    } else if (msg.type === "chest-result") {
-      setChestResult({ reward: msg.reward, newTotal: msg.newTotal });
-      setCoins(msg.newTotal);
-      setChestsOpened(true);
-    } else if (msg.type === "game-ended") {
-      setLocation(`/results/${gameId}`);
-    } else if (msg.type === "player-kicked" && msg.playerId === playerId) {
-      toast({ title: "You were kicked from the game", variant: "destructive" });
-      setLocation("/");
-    } else if (msg.type === "coins-updated" && msg.playerId === playerId) {
-      setCoins(msg.coins);
-    } else if (msg.type === "game-started") {
-      setGameState("waiting");
-    }
-  }, [messages, gameId, playerId, setLocation, toast]);
-
-  // Timer
-  useEffect(() => {
-    if (timeRemaining > 0 && gameState === "question") {
-      const timer = setTimeout(() => setTimeRemaining(prev => prev - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [timeRemaining, gameState]);
-
-  const handleAnswer = (index: number) => {
-    if (gameState !== "question") return;
-    setSelectedAnswer(index);
-    setGameState("answered");
-    sendMessage({ type: "answer", questionIndex, answerIndex: index, playerId });
+  const handleAdjustTimer = (e: React.FormEvent) => {
+    e.preventDefault();
+    const secs = parseInt(newTimerSecs);
+    if (isNaN(secs) || secs < 0) return;
+    sendMessage({ type: "admin-adjust-timer", password: ADMIN_PASSWORD, newSeconds: secs });
+    toast({ title: `Timer set to ${formatTime(secs)}` });
+    setNewTimerSecs("");
   };
-
-  const handleOpenChest = (index: number) => {
-    if (gameState !== "chests" || chestsOpened) return;
-    sendMessage({ type: "open-chest", chestIndex: index, playerId });
-  };
-
-  const optionColors = [
-    "bg-red-500 hover:bg-red-600 shadow-[0_6px_0_0_hsl(0,85%,40%)]",
-    "bg-blue-500 hover:bg-blue-600 shadow-[0_6px_0_0_hsl(210,100%,40%)]",
-    "bg-yellow-500 hover:bg-yellow-600 shadow-[0_6px_0_0_hsl(45,100%,40%)]",
-    "bg-green-500 hover:bg-green-600 shadow-[0_6px_0_0_hsl(140,100%,30%)]"
-  ];
 
   if (gameLoading) return null;
 
+  const timerColor =
+    gameTimeRemaining === null
+      ? "text-muted-foreground"
+      : gameTimeRemaining > 60
+      ? "text-green-400"
+      : gameTimeRemaining > 20
+      ? "text-yellow-400"
+      : "text-red-400";
+
   return (
     <div className="min-h-screen bg-background flex flex-col relative overflow-hidden">
-      {/* Background pattern */}
-      <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/30 via-background to-background"></div>
-      </div>
+      <div className="absolute inset-0 z-0 opacity-5 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary via-background to-background" />
 
       {/* Header */}
-      <div className="relative z-10 flex justify-between items-center p-4 md:p-6 bg-card/80 backdrop-blur-md border-b">
-        <div className="font-bold text-lg md:text-xl text-primary drop-shadow-md">
-          {game?.quizTitle}
-        </div>
-        
-        <div className="flex items-center gap-3">
-          {currentQuestion && (
-            <div className="hidden md:block font-bold text-muted-foreground bg-muted px-4 py-1.5 rounded-full">
-              Q: {questionIndex + 1} / {totalQuestions || '?'}
+      <div className="relative z-10 flex justify-between items-center px-4 py-3 bg-card/90 backdrop-blur border-b">
+        <div className="font-bold text-primary truncate max-w-[160px]">{game?.quizTitle}</div>
+
+        <div className="flex items-center gap-2">
+          {gameTimeRemaining !== null && (
+            <div className={`flex items-center gap-1 font-mono font-bold text-sm ${timerColor}`}>
+              <Clock className="w-3.5 h-3.5" />
+              {formatTime(gameTimeRemaining)}
             </div>
           )}
-          
-          <motion.div 
+
+          <motion.div
             key={coins}
-            initial={{ scale: 1.5, color: "hsl(var(--primary))" }}
-            animate={{ scale: 1, color: "hsl(var(--foreground))" }}
-            className="flex items-center gap-2 bg-black/40 px-4 py-2 rounded-full border border-border"
+            initial={{ scale: 1.4 }}
+            animate={{ scale: 1 }}
+            className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-full border border-border"
           >
-            <Coins className="w-5 h-5 text-yellow-500" />
-            <span className="font-bold font-mono text-lg">{coins}</span>
+            <Coins className="w-4 h-4 text-yellow-400" />
+            <span className="font-bold font-mono">{coins}</span>
           </motion.div>
 
           <button
             onClick={() => setAdminOpen(true)}
             className="p-2 rounded-full bg-card/80 border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all"
-            title="Admin Panel"
+            title="Admin"
           >
-            <ShieldAlert className="w-5 h-5" />
+            <ShieldAlert className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* Admin Dialog */}
       <Dialog open={adminOpen} onOpenChange={setAdminOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldAlert className="w-5 h-5 text-primary" /> Admin Panel
@@ -206,58 +386,109 @@ export default function PlayGame() {
 
           {!adminAuthed ? (
             <form onSubmit={handleAdminAuth} className="space-y-4 py-2">
-              <p className="text-sm text-muted-foreground">Enter the admin password to manage this game session.</p>
               <Input
                 type="password"
                 placeholder="Admin password"
                 value={adminPassword}
-                onChange={e => setAdminPassword(e.target.value)}
+                onChange={(e) => setAdminPassword(e.target.value)}
                 autoFocus
               />
               <Button type="submit" className="w-full">Unlock</Button>
             </form>
           ) : (
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto py-2 pr-1">
-              <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Players in this game</p>
-              {players && players.length > 0 ? (
-                [...players].sort((a, b) => b.coins - a.coins).map((p, idx) => (
-                  <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl border ${p.isKicked ? "opacity-40" : "border-border"}`}>
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${idx === 0 ? "bg-yellow-500" : idx === 1 ? "bg-gray-400" : idx === 2 ? "bg-amber-700" : "bg-muted-foreground"}`}>
-                      {idx + 1}
-                    </div>
-                    <span className="flex-1 font-semibold truncate">{p.nickname}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Coins className="w-3 h-3 text-yellow-400" />
-                      <Input
-                        type="number"
-                        className="w-20 h-8 text-right text-sm"
-                        value={editingCoins[p.id] ?? p.coins}
-                        onChange={e => setEditingCoins(prev => ({ ...prev, [p.id]: e.target.value }))}
-                        disabled={p.isKicked}
-                      />
-                      <Button
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => handleSaveCoins(p.id)}
-                        disabled={p.isKicked || editingCoins[p.id] === undefined || updatePlayer.isPending}
+            <div className="space-y-6 py-2">
+              {/* Timer section */}
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Adjust Game Timer</p>
+                <form onSubmit={handleAdjustTimer} className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Seconds (e.g. 120)"
+                    value={newTimerSecs}
+                    onChange={(e) => setNewTimerSecs(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button type="submit">Set</Button>
+                </form>
+                <div className="flex flex-wrap gap-2">
+                  {[60, 120, 180, 300].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        sendMessage({ type: "admin-adjust-timer", password: ADMIN_PASSWORD, newSeconds: s });
+                        toast({ title: `Timer set to ${formatTime(s)}` });
+                      }}
+                      className="px-3 py-1 rounded-full text-sm border border-border hover:border-primary/50 hover:text-primary transition-all"
+                    >
+                      {formatTime(s)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Players section */}
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Players</p>
+                {players && players.length > 0 ? (
+                  [...players]
+                    .sort((a, b) => b.coins - a.coins)
+                    .map((p, idx) => (
+                      <div
+                        key={p.id}
+                        className={`flex items-center gap-2 p-2 rounded-xl border ${p.isKicked ? "opacity-40" : "border-border"}`}
                       >
-                        Save
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                        onClick={() => handleKick(p.id)}
-                        disabled={p.isKicked}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center text-muted-foreground py-6">No players yet</div>
-              )}
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${
+                            idx === 0
+                              ? "bg-yellow-500"
+                              : idx === 1
+                              ? "bg-gray-400"
+                              : idx === 2
+                              ? "bg-amber-700"
+                              : "bg-muted-foreground"
+                          }`}
+                        >
+                          {idx + 1}
+                        </div>
+                        <span className="flex-1 font-semibold text-sm truncate">{p.nickname}</span>
+                        <Coins className="w-3 h-3 text-yellow-400 shrink-0" />
+                        <Input
+                          type="number"
+                          className="w-18 h-7 text-right text-sm"
+                          value={editingCoins[p.id] ?? p.coins}
+                          onChange={(e) =>
+                            setEditingCoins((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                          disabled={p.isKicked}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs px-2"
+                          onClick={() => handleSaveCoins(p.id)}
+                          disabled={
+                            p.isKicked ||
+                            editingCoins[p.id] === undefined ||
+                            updatePlayer.isPending
+                          }
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                          onClick={() => handleKick(p.id)}
+                          disabled={p.isKicked}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))
+                ) : (
+                  <div className="text-center text-muted-foreground py-4 text-sm">No players</div>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
@@ -266,200 +497,271 @@ export default function PlayGame() {
       {/* Main Content */}
       <div className="flex-1 relative z-10 flex flex-col items-center justify-center p-4">
         <AnimatePresence mode="wait">
-          
-          {gameState === "waiting" && (
+          {/* WAITING */}
+          {phase === "waiting" && (
             <motion.div
               key="waiting"
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.2 }}
-              className="text-center space-y-6"
+              exit={{ opacity: 0 }}
+              className="text-center space-y-4"
             >
-              <Loader2 className="w-16 h-16 animate-spin mx-auto text-primary" />
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tight">Get Ready!</h2>
-              <p className="text-muted-foreground text-lg">Waiting for the host to start...</p>
+              <Loader2 className="w-14 h-14 animate-spin mx-auto text-primary" />
+              <h2 className="text-2xl font-bold">
+                {isConnected ? "Get Ready…" : "Connecting…"}
+              </h2>
+              <p className="text-muted-foreground">Waiting for the host to start the game</p>
             </motion.div>
           )}
 
-          {(gameState === "question" || gameState === "answered") && currentQuestion && (
+          {/* QUESTION */}
+          {(phase === "question" || phase === "answered") && currentQuestion && (
             <motion.div
-              key="question"
-              initial={{ opacity: 0, y: 50 }}
+              key={`question-${currentQuestion.id}`}
+              initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -50 }}
-              className="w-full max-w-4xl w-full flex flex-col h-full justify-center gap-8 py-8"
+              exit={{ opacity: 0, y: -40 }}
+              className="w-full max-w-4xl flex flex-col gap-8"
             >
-              <div className="text-center space-y-8">
-                {/* Circular Timer */}
-                <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
-                  <svg className="w-full h-full transform -rotate-90">
-                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-muted" />
-                    <circle 
-                      cx="48" cy="48" r="44" 
-                      stroke="currentColor" 
-                      strokeWidth="8" 
-                      fill="transparent" 
-                      strokeDasharray="276"
-                      strokeDashoffset={276 - (276 * timeRemaining) / timeLimit}
-                      className="text-primary transition-all duration-1000 ease-linear" 
+              {/* Circular timer */}
+              <div className="flex justify-center">
+                <div className="relative w-20 h-20">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
+                    <circle cx="40" cy="40" r="34" stroke="currentColor" strokeWidth="7" fill="transparent" className="text-muted" />
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="34"
+                      stroke="currentColor"
+                      strokeWidth="7"
+                      fill="transparent"
+                      strokeDasharray="213.6"
+                      strokeDashoffset={
+                        213.6 - (213.6 * Math.max(0, questionTimer)) / Math.max(1, questionTimerMax)
+                      }
+                      className={`transition-all duration-1000 ease-linear ${
+                        questionTimer > questionTimerMax * 0.5
+                          ? "text-primary"
+                          : questionTimer > questionTimerMax * 0.25
+                          ? "text-yellow-400"
+                          : "text-red-500"
+                      }`}
                     />
                   </svg>
-                  <div className="absolute text-2xl font-bold">{timeRemaining}</div>
+                  <div className="absolute inset-0 flex items-center justify-center text-xl font-black">
+                    {questionTimer}
+                  </div>
                 </div>
-
-                <h2 className="text-3xl md:text-5xl font-bold leading-tight">
-                  {currentQuestion.text}
-                </h2>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mt-8">
-                {currentQuestion.options.map((option: string, idx: number) => (
+              <h2 className="text-2xl md:text-4xl font-black text-center leading-tight">
+                {currentQuestion.text}
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {currentQuestion.options.map((option, idx) => (
                   <motion.button
                     key={idx}
-                    whileHover={gameState === "question" ? { scale: 1.02 } : {}}
-                    whileTap={gameState === "question" ? { scale: 0.95 } : {}}
+                    whileHover={phase === "question" ? { scale: 1.02 } : {}}
+                    whileTap={phase === "question" ? { scale: 0.97 } : {}}
                     onClick={() => handleAnswer(idx)}
-                    disabled={gameState !== "question"}
+                    disabled={phase !== "question"}
                     className={`
-                      relative p-6 rounded-2xl text-xl md:text-2xl font-bold text-white transition-all min-h-[120px] flex items-center justify-center text-center
-                      ${gameState === "answered" 
-                        ? selectedAnswer === idx 
-                          ? 'opacity-100 scale-105 shadow-none translate-y-2' 
-                          : 'opacity-50 grayscale'
-                        : optionColors[idx % optionColors.length]
+                      relative p-5 rounded-2xl text-lg md:text-xl font-bold text-white
+                      min-h-[100px] flex items-center justify-center text-center gap-3
+                      transition-all duration-150
+                      ${
+                        phase === "answered"
+                          ? selectedAnswer === idx
+                            ? "opacity-100 scale-103 shadow-none"
+                            : "opacity-40 grayscale cursor-not-allowed"
+                          : OPTION_COLORS[idx % OPTION_COLORS.length]
                       }
                     `}
                   >
+                    <span className="text-2xl opacity-60">{OPTION_SHAPES[idx]}</span>
                     {option}
                   </motion.button>
                 ))}
               </div>
-              
-              {gameState === "answered" && (
-                <div className="text-center text-xl font-bold text-muted-foreground animate-pulse mt-8">
-                  Waiting for others...
+
+              {phase === "answered" && (
+                <div className="text-center text-muted-foreground font-bold animate-pulse text-sm uppercase tracking-widest">
+                  Submitting…
                 </div>
               )}
             </motion.div>
           )}
 
-          {gameState === "result" && result && currentQuestion && (
+          {/* RESULT CORRECT */}
+          {phase === "result-correct" && result && (
             <motion.div
-              key="result"
+              key="result-correct"
               initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="w-full max-w-2xl text-center space-y-8"
+              className="w-full max-w-lg text-center space-y-6"
             >
-              <div className={`w-32 h-32 mx-auto rounded-full flex items-center justify-center shadow-2xl ${result.correct ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'}`}>
-                {result.correct ? <Check className="w-16 h-16 text-white" /> : <X className="w-16 h-16 text-white" />}
+              <div className="w-28 h-28 mx-auto rounded-full bg-green-500 shadow-2xl shadow-green-500/40 flex items-center justify-center">
+                <Check className="w-14 h-14 text-white" />
               </div>
-              
-              <div>
-                <h2 className={`text-4xl md:text-6xl font-black mb-4 ${result.correct ? 'text-green-500' : 'text-red-500'}`}>
-                  {result.correct ? 'CORRECT!' : 'INCORRECT'}
-                </h2>
-                
-                {result.coinsEarned > 0 && (
-                  <motion.div 
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 0.5 }}
-                    className="text-3xl font-bold text-yellow-500 flex items-center justify-center gap-2"
-                  >
-                    +{result.coinsEarned} <Coins className="w-8 h-8" />
-                  </motion.div>
-                )}
-              </div>
-              
-              <Card className="bg-card/50 backdrop-blur border-primary/20">
-                <CardContent className="p-6 md:p-8 space-y-4 text-left">
-                  {!result.correct && (
-                    <div>
-                      <span className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Correct Answer</span>
-                      <p className="text-xl font-bold text-green-500 mt-1">{currentQuestion.options[result.correctAnswer]}</p>
-                    </div>
-                  )}
-                  
-                  {result.explanation && (
-                    <div>
-                      <span className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Explanation</span>
-                      <p className="text-lg mt-1">{result.explanation}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-              
-              <p className="text-muted-foreground animate-pulse font-bold tracking-widest uppercase">
-                Waiting for host...
+              <h2 className="text-5xl md:text-7xl font-black text-green-500">CORRECT!</h2>
+              {result.coinsEarned > 0 && (
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-4xl font-black text-yellow-400 flex items-center justify-center gap-2"
+                >
+                  +{result.coinsEarned} <Coins className="w-9 h-9" />
+                </motion.div>
+              )}
+              <p className="text-muted-foreground text-sm animate-pulse uppercase tracking-widest">
+                Next question in a moment…
               </p>
             </motion.div>
           )}
 
-          {gameState === "chests" && (
+          {/* RESULT WRONG */}
+          {phase === "result-wrong" && result && currentQuestion && (
             <motion.div
-              key="chests"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="w-full max-w-4xl text-center space-y-12"
+              key="result-wrong"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="w-full max-w-xl text-center space-y-6"
             >
-              <h2 className="text-4xl md:text-6xl font-black text-primary drop-shadow-lg">
-                Choose a Chest!
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {[0, 1, 2].map((idx) => (
-                  <motion.div
-                    key={idx}
-                    whileHover={!chestsOpened ? { scale: 1.05, y: -10 } : {}}
-                    whileTap={!chestsOpened ? { scale: 0.95 } : {}}
-                    onClick={() => handleOpenChest(idx)}
-                    className={`
-                      relative cursor-pointer perspective-1000
-                      ${chestsOpened ? (chestResult ? 'opacity-100' : 'opacity-50') : 'opacity-100'}
-                    `}
-                  >
-                    <motion.div 
-                      className="w-full aspect-square bg-gradient-to-br from-yellow-400 to-amber-700 rounded-3xl shadow-2xl flex flex-col items-center justify-center border-4 border-yellow-300 relative overflow-hidden"
-                      animate={chestsOpened && chestResult ? { rotateY: 180 } : { rotateY: 0 }}
-                      transition={{ duration: 0.6, type: "spring" }}
-                    >
-                      {/* Front of chest */}
-                      <div className={`absolute inset-0 flex flex-col items-center justify-center backface-hidden ${chestsOpened ? 'hidden' : ''}`}>
-                        <div className="w-16 h-8 bg-amber-900 rounded-t-full mb-2"></div>
-                        <div className="w-20 h-12 bg-amber-800 border-4 border-yellow-500 flex items-center justify-center">
-                          <div className="w-4 h-6 bg-black rounded-full"></div>
-                        </div>
-                      </div>
-                      
-                      {/* Back of chest (result) */}
-                      <div className={`absolute inset-0 flex flex-col items-center justify-center bg-card backface-hidden transform rotate-y-180 border-4 border-primary rounded-2xl ${!chestsOpened ? 'hidden' : ''}`}>
-                        {chestResult && (
-                          <>
-                            <span className="text-4xl font-black text-yellow-500 mb-2">
-                              +{chestResult.reward}
-                            </span>
-                            <Coins className="w-12 h-12 text-yellow-500" />
-                          </>
-                        )}
-                      </div>
-                    </motion.div>
-                  </motion.div>
-                ))}
+              <div className="w-28 h-28 mx-auto rounded-full bg-red-500 shadow-2xl shadow-red-500/40 flex items-center justify-center">
+                {result.timedOut ? (
+                  <Clock className="w-14 h-14 text-white" />
+                ) : (
+                  <X className="w-14 h-14 text-white" />
+                )}
               </div>
-              
-              {chestsOpened && (
-                <motion.p 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 1 }}
-                  className="text-muted-foreground animate-pulse font-bold tracking-widest uppercase mt-8"
-                >
-                  Waiting for host...
-                </motion.p>
+
+              <h2 className="text-5xl md:text-7xl font-black text-red-500">
+                {result.timedOut ? "TIME'S UP!" : "WRONG"}
+              </h2>
+
+              <Card className="bg-card/60 backdrop-blur border-border text-left">
+                <CardContent className="p-6 space-y-4">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      Correct Answer
+                    </span>
+                    <p className="text-xl font-bold text-green-400 mt-1">
+                      {result.correctAnswerText}
+                    </p>
+                  </div>
+                  {result.explanation && (
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                        Explanation
+                      </span>
+                      <p className="text-base mt-1 leading-relaxed">{result.explanation}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {wrongCountdown > 0 ? (
+                <p className="text-muted-foreground font-bold text-sm uppercase tracking-widest">
+                  Next question in {wrongCountdown}…
+                </p>
+              ) : (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                  <Button
+                    size="lg"
+                    className="h-14 px-10 text-lg font-bold"
+                    onClick={requestNextQuestion}
+                  >
+                    Next Question →
+                  </Button>
+                </motion.div>
               )}
             </motion.div>
           )}
 
+          {/* CHESTS */}
+          {phase === "chests" && (
+            <motion.div
+              key="chests"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="w-full max-w-3xl text-center space-y-10"
+            >
+              <motion.div
+                initial={{ y: -20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="text-yellow-400 text-5xl mb-2">🎉</div>
+                <h2 className="text-4xl md:text-6xl font-black text-primary">3 in a Row!</h2>
+                <p className="text-xl text-muted-foreground mt-2 font-medium">
+                  Choose a chest for your reward
+                </p>
+              </motion.div>
+
+              <div className="grid grid-cols-3 gap-6">
+                {[0, 1, 2].map((idx) => (
+                  <motion.button
+                    key={idx}
+                    initial={{ y: 30, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.3 + idx * 0.1 }}
+                    whileHover={{ scale: 1.05, y: -8 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleOpenChest(idx)}
+                    className="relative aspect-square"
+                  >
+                    <div className="w-full h-full bg-gradient-to-br from-yellow-400 to-amber-700 rounded-3xl shadow-2xl border-4 border-yellow-300 flex flex-col items-center justify-center relative overflow-hidden">
+                      <div className="text-6xl">📦</div>
+                      <div className="text-xl font-black text-yellow-100 mt-2">?</div>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* CHEST OPENED */}
+          {phase === "chest-opened" && chestResult && (
+            <motion.div
+              key="chest-opened"
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="w-full max-w-lg text-center space-y-6"
+            >
+              <div className="text-8xl">🎁</div>
+              <div>
+                <h2 className="text-3xl font-black text-primary mb-2">
+                  {chestResult.reward.label}
+                </h2>
+                {chestResult.reward.coinsChange !== 0 && (
+                  <div
+                    className={`text-4xl font-black flex items-center justify-center gap-2 ${
+                      chestResult.reward.coinsChange > 0 ? "text-yellow-400" : "text-red-400"
+                    }`}
+                  >
+                    {chestResult.reward.coinsChange > 0 ? "+" : ""}
+                    {chestResult.reward.coinsChange}
+                    <Coins className="w-9 h-9" />
+                  </div>
+                )}
+                {chestResult.stealInfo && (
+                  <p className="text-muted-foreground mt-2">
+                    Stole {chestResult.stealInfo.stolen} coins from{" "}
+                    <strong>{chestResult.stealInfo.fromNickname}</strong>!
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-center gap-2 text-xl font-bold">
+                <Coins className="w-6 h-6 text-yellow-400" />
+                <span>Total: {chestResult.newTotal} coins</span>
+              </div>
+              <p className="text-muted-foreground text-sm animate-pulse uppercase tracking-widest">
+                Continuing…
+              </p>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>

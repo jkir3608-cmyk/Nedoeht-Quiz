@@ -17,18 +17,23 @@ export function useRequireAuth() {
 }
 
 // Hook for websocket game connection
-export type GameMessage = 
+export type GameMessage =
   | { type: "player-joined"; player: any }
   | { type: "player-list"; players: any[] }
-  | { type: "game-started" }
-  | { type: "question"; question: any; questionIndex: number; totalQuestions: number; timeLimit: number }
-  | { type: "answer-result"; correct: boolean; coinsEarned: number; explanation: string; correctAnswer: number }
+  | { type: "game-started"; endsAt: number; remainingSeconds: number }
+  | { type: "question"; question: any; playerCoins: number }
+  | { type: "answer-result"; correct: boolean; timedOut: boolean; coinsEarned: number; rewardType: string; newTotal: number; explanation: string; correctAnswer: number; correctAnswerText: string }
   | { type: "show-chests" }
-  | { type: "chest-result"; reward: number; newTotal: number }
+  | { type: "chest-result"; reward: any; newTotal: number; stealInfo: any }
   | { type: "leaderboard"; players: any[] }
   | { type: "game-ended"; players: any[] }
   | { type: "player-kicked"; playerId: number }
-  | { type: "coins-updated"; playerId: number; coins: number };
+  | { type: "coins-updated"; playerId: number; coins: number }
+  | { type: "timer"; remaining: number; endsAt: number }
+  | { type: "timer-adjusted"; newSeconds: number }
+  | { type: "no-questions" }
+  | { type: "error"; message: string }
+  | { type: "pong" };
 
 export function useGameWebSocket(gameId: number | string, role: "host" | "player", playerId?: number | string) {
   const [messages, setMessages] = useState<GameMessage[]>([]);

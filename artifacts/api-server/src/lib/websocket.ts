@@ -1,11 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { db } from "@workspace/db";
-import {
-  gamesTable,
-  questionsTable,
-  playersTable,
-} from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { gamesTable, questionsTable, playersTable } from "@workspace/db";
+import { eq, and, ne } from "drizzle-orm";
 import { logger } from "./logger";
 
 const ADMIN_PASSWORD = "2026BIOlogy!";
@@ -15,9 +11,25 @@ interface GameClient {
   gameId: number;
   role: "host" | "player";
   playerId?: number;
+  seenQuestionIds: Set<number>;
+}
+
+interface GameTimer {
+  interval: ReturnType<typeof setInterval>;
+  endTimeout: ReturnType<typeof setTimeout>;
+  endsAt: number;
+  remainingSeconds: number;
+}
+
+interface PendingChest {
+  gameId: number;
+  rewards: Array<{ type: string; coins: number; multiplier?: number; label: string }>;
+  playerCoins: number;
 }
 
 const clients = new Map<WebSocket, GameClient>();
+const gameTimers = new Map<number, GameTimer>();
+const pendingChests = new Map<number, PendingChest>(); // keyed by playerId
 
 function getGameClients(gameId: number) {
   return Array.from(clients.values()).filter((c) => c.gameId === gameId);
@@ -32,15 +44,6 @@ function broadcast(gameId: number, data: object, excludeWs?: WebSocket) {
   });
 }
 
-function sendToPlayer(gameId: number, playerId: number, data: object) {
-  const msg = JSON.stringify(data);
-  getGameClients(gameId).forEach((c) => {
-    if (c.role === "player" && c.playerId === playerId && c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(msg);
-    }
-  });
-}
-
 function sendToHost(gameId: number, data: object) {
   const msg = JSON.stringify(data);
   getGameClients(gameId).forEach((c) => {
@@ -50,60 +53,54 @@ function sendToHost(gameId: number, data: object) {
   });
 }
 
-const questionTimers = new Map<number, ReturnType<typeof setTimeout>>();
+async function sendLeaderboardToHost(gameId: number) {
+  const allPlayers = await db
+    .select()
+    .from(playersTable)
+    .where(and(eq(playersTable.gameId, gameId), eq(playersTable.isKicked, false)));
 
-async function sendNextQuestion(gameId: number) {
-  const game = await db.query.gamesTable.findFirst({
-    where: eq(gamesTable.id, gameId),
+  sendToHost(gameId, {
+    type: "leaderboard",
+    players: allPlayers
+      .sort((a, b) => b.coins - a.coins)
+      .map((p) => ({
+        id: p.id,
+        nickname: p.nickname,
+        coins: p.coins,
+        correctAnswers: p.correctAnswers,
+        totalAnswers: p.totalAnswers,
+        avatarColor: p.avatarColor,
+      })),
   });
-  if (!game || game.status !== "playing") return;
+}
 
+async function getNextQuestionForPlayer(client: GameClient, quizId: number) {
   const questions = await db
     .select()
     .from(questionsTable)
-    .where(eq(questionsTable.quizId, game.quizId))
-    .orderBy(questionsTable.orderIndex);
+    .where(eq(questionsTable.quizId, quizId));
 
-  const nextIndex = game.currentQuestionIndex + 1;
+  if (questions.length === 0) return null;
 
-  if (nextIndex >= questions.length) {
-    await endGame(gameId);
-    return;
+  let candidates = questions.filter((q) => !client.seenQuestionIds.has(q.id));
+  if (candidates.length === 0) {
+    client.seenQuestionIds.clear();
+    candidates = questions;
   }
 
-  await db
-    .update(gamesTable)
-    .set({ currentQuestionIndex: nextIndex })
-    .where(eq(gamesTable.id, gameId));
-
-  const question = questions[nextIndex];
-
-  broadcast(gameId, {
-    type: "question",
-    question: {
-      id: question.id,
-      text: question.text,
-      options: question.options,
-      timeLimit: question.timeLimit,
-    },
-    questionIndex: nextIndex,
-    totalQuestions: questions.length,
-    timeLimit: question.timeLimit,
-  });
-
-  const timer = setTimeout(async () => {
-    const q = questions[nextIndex];
-    broadcast(gameId, {
-      type: "time-up",
-      correctAnswer: q.correctAnswer,
-      explanation: q.explanation ?? "No explanation provided.",
-    });
-  }, question.timeLimit * 1000 + 2000);
-
-  questionTimers.set(gameId, timer);
+  const question = candidates[Math.floor(Math.random() * candidates.length)];
+  client.seenQuestionIds.add(question.id);
+  return question;
 }
 
 async function endGame(gameId: number) {
+  const gt = gameTimers.get(gameId);
+  if (gt) {
+    clearInterval(gt.interval);
+    clearTimeout(gt.endTimeout);
+    gameTimers.delete(gameId);
+  }
+
   await db
     .update(gamesTable)
     .set({ status: "ended" })
@@ -129,204 +126,176 @@ async function endGame(gameId: number) {
   broadcast(gameId, { type: "game-ended", players: leaderboard });
 }
 
-function calculateReward(
-  skillLuckScale: number,
-  basePoints: number,
-): { type: string; coins: number; multiplier?: number } {
-  if (skillLuckScale === 1) {
-    return { type: "flat", coins: 10 };
+function startGameTimer(gameId: number, durationSeconds: number) {
+  const existing = gameTimers.get(gameId);
+  if (existing) {
+    clearInterval(existing.interval);
+    clearTimeout(existing.endTimeout);
   }
 
-  const rand = Math.random();
+  const endsAt = Date.now() + durationSeconds * 1000;
+  let remainingSeconds = durationSeconds;
+
+  const interval = setInterval(() => {
+    remainingSeconds = Math.max(0, remainingSeconds - 1);
+    if (gameTimers.get(gameId)) {
+      gameTimers.get(gameId)!.remainingSeconds = remainingSeconds;
+    }
+    broadcast(gameId, { type: "timer", remaining: remainingSeconds, endsAt });
+  }, 1000);
+
+  const endTimeout = setTimeout(() => {
+    endGame(gameId).catch((err) => logger.error({ err }, "Error ending game"));
+  }, durationSeconds * 1000);
+
+  gameTimers.set(gameId, { interval, endTimeout, endsAt, remainingSeconds });
+}
+
+function getCorrectAnswerReward(skillLuckScale: number, basePoints: number) {
+  if (skillLuckScale === 1) return { type: "flat", coins: 30 };
+
   const luckWeight = (skillLuckScale - 1) / 4;
+  const rand = Math.random();
 
-  if (luckWeight < 0.25 || rand < (1 - luckWeight) * 0.7) {
-    const coins = Math.round(basePoints * (0.8 + Math.random() * 0.4));
-    return { type: "coins", coins };
+  if (rand < 0.6 - luckWeight * 0.3) {
+    const coins = basePoints + Math.floor(Math.random() * basePoints * 0.5 * luckWeight);
+    return { type: "coins", coins: Math.max(10, coins) };
   }
 
-  const luckRoll = Math.random();
-
-  if (luckWeight >= 0.75 && luckRoll < 0.15) {
-    const lost = Math.floor(Math.random() * 40) + 30;
-    return { type: "big-loss", coins: -lost, multiplier: 0 };
+  if (luckWeight >= 0.5 && rand < 0.75) {
+    return { type: "double", coins: basePoints * 2 };
   }
 
-  if (luckRoll < 0.2 * luckWeight) {
-    const lost = Math.floor(Math.random() * 20) + 10;
-    return { type: "loss", coins: -lost };
-  }
-
-  if (luckRoll < 0.4) {
-    return { type: "double", coins: basePoints * 2, multiplier: 2 };
-  }
-
-  if (luckRoll < 0.55 && luckWeight >= 0.5) {
-    return { type: "triple", coins: basePoints * 3, multiplier: 3 };
-  }
-
-  if (luckRoll < 0.65 && luckWeight >= 0.75) {
-    return { type: "quadruple", coins: basePoints * 4, multiplier: 4 };
+  if (luckWeight >= 0.75 && rand < 0.85) {
+    return { type: "triple", coins: basePoints * 3 };
   }
 
   return { type: "coins", coins: basePoints };
 }
 
-function chestReward(skillLuckScale: number, basePoints: number) {
-  const rewards = [
-    { type: "coins", coins: basePoints },
-    { type: "double", coins: basePoints * 2, multiplier: 2 },
-    { type: "coins", coins: Math.floor(basePoints * 0.5) },
-  ];
+function buildChestRewardPool(skillLuckScale: number) {
+  type Reward = { type: string; coins: number; multiplier?: number; label: string; weight: number };
+  const pool: Reward[] = [];
+
+  if (skillLuckScale === 1) {
+    return [
+      { type: "flat", coins: 30, label: "+30 Coins", weight: 1 },
+      { type: "flat", coins: 30, label: "+30 Coins", weight: 1 },
+      { type: "flat", coins: 30, label: "+30 Coins", weight: 1 },
+    ];
+  }
+
+  pool.push({ type: "coins", coins: 50, label: "+50 Coins", weight: 25 });
+  pool.push({ type: "coins", coins: 25, label: "+25 Coins", weight: 20 });
+
+  if (skillLuckScale >= 2) {
+    pool.push({ type: "double", coins: 0, multiplier: 2, label: "2× Your Coins!", weight: 15 });
+    pool.push({ type: "loss", coins: -30, label: "−30 Coins", weight: 12 });
+  }
   if (skillLuckScale >= 3) {
-    rewards.push({ type: "triple", coins: basePoints * 3, multiplier: 3 });
-    if (skillLuckScale >= 4) {
-      rewards.push({ type: "big-loss", coins: -Math.floor(basePoints * 0.3), multiplier: 0 });
-    }
-    if (skillLuckScale === 5) {
-      rewards.push({ type: "quadruple", coins: basePoints * 4, multiplier: 4 });
-    }
+    pool.push({ type: "triple", coins: 0, multiplier: 3, label: "3× Your Coins!", weight: 8 });
+    pool.push({ type: "percent-loss", coins: 0, multiplier: 0.7, label: "Lose 30%!", weight: 7 });
+    pool.push({ type: "steal", coins: 0, label: "Steal 50% from someone!", weight: 6 });
   }
-  return rewards[Math.floor(Math.random() * rewards.length)];
-}
-
-async function handleAnswer(
-  ws: WebSocket,
-  client: GameClient,
-  msg: { questionIndex: number; answerIndex: number; playerId: number },
-) {
-  const { gameId } = client;
-
-  const game = await db.query.gamesTable.findFirst({
-    where: eq(gamesTable.id, gameId),
-  });
-  if (!game || game.status !== "playing") return;
-
-  const questions = await db
-    .select()
-    .from(questionsTable)
-    .where(eq(questionsTable.quizId, game.quizId))
-    .orderBy(questionsTable.orderIndex);
-
-  const question = questions[msg.questionIndex];
-  if (!question) return;
-
-  const player = await db.query.playersTable.findFirst({
-    where: and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)),
-  });
-  if (!player || player.isKicked) return;
-
-  const correct = msg.answerIndex === question.correctAnswer;
-
-  let coinsEarned = 0;
-  let rewardType = "none";
-  let showChests = false;
-  let newConsecutive = correct ? player.consecutiveCorrect + 1 : 0;
-
-  if (correct) {
-    const reward = calculateReward(game.skillLuckScale, question.points);
-    coinsEarned = reward.coins;
-    rewardType = reward.type;
-
-    if (newConsecutive >= 3) {
-      showChests = true;
-      newConsecutive = 0;
-    }
+  if (skillLuckScale >= 4) {
+    pool.push({ type: "big-bonus", coins: 150, label: "+150 Coins!", weight: 4 });
+    pool.push({ type: "quadruple", coins: 0, multiplier: 4, label: "4× Your Coins!", weight: 2 });
+    pool.push({ type: "big-loss", coins: -80, label: "−80 Coins!", weight: 4 });
+  }
+  if (skillLuckScale === 5) {
+    pool.push({ type: "jackpot", coins: 300, label: "JACKPOT +300!", weight: 1 });
+    pool.push({ type: "bust", coins: 0, multiplier: 0, label: "BUST − Lose All!", weight: 2 });
   }
 
-  const newCoins = Math.max(0, player.coins + coinsEarned);
-  const newCorrect = player.correctAnswers + (correct ? 1 : 0);
-  const newTotal = player.totalAnswers + 1;
-
-  await db
-    .update(playersTable)
-    .set({
-      coins: newCoins,
-      correctAnswers: newCorrect,
-      totalAnswers: newTotal,
-      consecutiveCorrect: newConsecutive,
-    })
-    .where(eq(playersTable.id, player.id));
-
-  const payload = {
-    type: "answer-result",
-    correct,
-    coinsEarned,
-    rewardType,
-    newTotal: newCoins,
-    explanation: question.explanation ?? "No explanation provided.",
-    correctAnswer: question.correctAnswer,
+  const totalWeight = pool.reduce((s, r) => s + r.weight, 0);
+  const pickOne = (): Reward => {
+    let rand = Math.random() * totalWeight;
+    for (const r of pool) {
+      rand -= r.weight;
+      if (rand <= 0) return r;
+    }
+    return pool[0];
   };
 
-  ws.send(JSON.stringify(payload));
-
-  if (showChests) {
-    setTimeout(() => {
-      ws.send(JSON.stringify({ type: "show-chests" }));
-    }, 1500);
-  }
-
-  const allPlayers = await db
-    .select()
-    .from(playersTable)
-    .where(and(eq(playersTable.gameId, gameId), eq(playersTable.isKicked, false)));
-
-  sendToHost(gameId, {
-    type: "leaderboard",
-    players: allPlayers
-      .sort((a, b) => b.coins - a.coins)
-      .map((p) => ({
-        id: p.id,
-        nickname: p.nickname,
-        coins: p.coins,
-        correctAnswers: p.correctAnswers,
-        avatarColor: p.avatarColor,
-      })),
-  });
+  return [pickOne(), pickOne(), pickOne()];
 }
 
-async function handleOpenChest(
+async function applyChestReward(
+  player: { id: number; coins: number; nickname: string },
+  gameId: number,
+  reward: { type: string; coins: number; multiplier?: number },
   ws: WebSocket,
-  client: GameClient,
-  msg: { chestIndex: number; playerId: number },
-) {
-  const { gameId } = client;
-  const game = await db.query.gamesTable.findFirst({
-    where: eq(gamesTable.id, gameId),
-  });
-  if (!game) return;
+): Promise<{ newCoins: number; coinsChange: number; stealInfo: { fromNickname: string; stolen: number } | null }> {
+  let coinsChange = 0;
+  let stealInfo: { fromNickname: string; stolen: number } | null = null;
 
-  const player = await db.query.playersTable.findFirst({
-    where: and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)),
-  });
-  if (!player) return;
+  switch (reward.type) {
+    case "flat":
+    case "coins":
+    case "big-bonus":
+    case "jackpot":
+      coinsChange = reward.coins;
+      break;
+    case "loss":
+    case "big-loss":
+      coinsChange = reward.coins;
+      break;
+    case "double":
+    case "triple":
+    case "quadruple":
+      coinsChange = Math.floor(player.coins * ((reward.multiplier ?? 1) - 1));
+      break;
+    case "percent-loss":
+      coinsChange = -Math.floor(player.coins * (1 - (reward.multiplier ?? 0.7)));
+      break;
+    case "bust":
+      coinsChange = -player.coins;
+      break;
+    case "steal": {
+      const others = await db
+        .select()
+        .from(playersTable)
+        .where(
+          and(
+            eq(playersTable.gameId, gameId),
+            eq(playersTable.isKicked, false),
+            ne(playersTable.id, player.id),
+          ),
+        );
+      const richOthers = others.filter((p) => p.coins > 0);
+      if (richOthers.length > 0) {
+        const victim = richOthers[Math.floor(Math.random() * richOthers.length)];
+        const stolen = Math.floor(victim.coins * 0.5);
+        coinsChange = stolen;
+        await db
+          .update(playersTable)
+          .set({ coins: Math.max(0, victim.coins - stolen) })
+          .where(eq(playersTable.id, victim.id));
+        broadcast(gameId, { type: "coins-updated", playerId: victim.id, coins: Math.max(0, victim.coins - stolen) }, ws);
+        stealInfo = { fromNickname: victim.nickname, stolen };
+      } else {
+        coinsChange = 25;
+      }
+      break;
+    }
+    default:
+      coinsChange = 0;
+  }
 
-  const reward = chestReward(game.skillLuckScale, 50);
-  const newCoins = Math.max(0, player.coins + reward.coins);
-
+  const newCoins = Math.max(0, player.coins + coinsChange);
   await db
     .update(playersTable)
     .set({ coins: newCoins })
     .where(eq(playersTable.id, player.id));
 
-  ws.send(JSON.stringify({
-    type: "chest-result",
-    reward,
-    newTotal: newCoins,
-  }));
-
-  broadcast(gameId, {
-    type: "coins-updated",
-    playerId: player.id,
-    coins: newCoins,
-  }, ws);
+  return { newCoins, coinsChange, stealInfo };
 }
 
 export function setupWebSocket(wss: WebSocketServer) {
   wss.on("connection", (ws, req) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const gameId = parseInt(url.searchParams.get("gameId") ?? "0");
-    const role = url.searchParams.get("role") as "host" | "player" ?? "player";
+    const role = (url.searchParams.get("role") as "host" | "player") ?? "player";
     const playerId = parseInt(url.searchParams.get("playerId") ?? "0") || undefined;
 
     if (!gameId) {
@@ -334,24 +303,44 @@ export function setupWebSocket(wss: WebSocketServer) {
       return;
     }
 
-    const client: GameClient = { ws, gameId, role, playerId };
+    const client: GameClient = { ws, gameId, role, playerId, seenQuestionIds: new Set() };
     clients.set(ws, client);
 
     logger.info({ gameId, role, playerId }, "WebSocket client connected");
 
     if (role === "player" && playerId) {
-      db.query.playersTable.findFirst({
-        where: and(eq(playersTable.id, playerId), eq(playersTable.gameId, gameId)),
-      }).then((player) => {
-        if (!player) return;
-        sendToHost(gameId, { type: "player-joined", player });
-        db.select()
-          .from(playersTable)
-          .where(and(eq(playersTable.gameId, gameId), eq(playersTable.isKicked, false)))
-          .then((players) => {
-            broadcast(gameId, { type: "player-list", players });
-          });
-      }).catch((err) => logger.error({ err }, "Error on player connect"));
+      db.query.playersTable
+        .findFirst({ where: and(eq(playersTable.id, playerId), eq(playersTable.gameId, gameId)) })
+        .then(async (player) => {
+          if (!player) return;
+          sendToHost(gameId, { type: "player-joined", player });
+
+          const players = await db
+            .select()
+            .from(playersTable)
+            .where(and(eq(playersTable.gameId, gameId), eq(playersTable.isKicked, false)));
+          broadcast(gameId, { type: "player-list", players });
+
+          const game = await db.query.gamesTable.findFirst({ where: eq(gamesTable.id, gameId) });
+          if (game?.status === "playing") {
+            const gt = gameTimers.get(gameId);
+            ws.send(
+              JSON.stringify({
+                type: "game-started",
+                endsAt: gt?.endsAt ?? Date.now() + 60000,
+                remainingSeconds: gt?.remainingSeconds ?? 60,
+              }),
+            );
+          }
+        })
+        .catch((err) => logger.error({ err }, "Error on player connect"));
+    }
+
+    if (role === "host") {
+      const gt = gameTimers.get(gameId);
+      if (gt) {
+        ws.send(JSON.stringify({ type: "game-started", endsAt: gt.endsAt, remainingSeconds: gt.remainingSeconds }));
+      }
     }
 
     ws.on("message", async (raw) => {
@@ -359,65 +348,222 @@ export function setupWebSocket(wss: WebSocketServer) {
         const msg = JSON.parse(raw.toString());
         const client = clients.get(ws);
         if (!client) return;
+        const { gameId } = client;
 
         switch (msg.type) {
           case "ping":
             ws.send(JSON.stringify({ type: "pong" }));
             break;
 
-          case "answer":
-            await handleAnswer(ws, client, msg);
-            break;
+          case "start-game": {
+            if (client.role !== "host") break;
+            const duration =
+              typeof msg.duration === "number" && msg.duration > 0 ? msg.duration : 480;
 
-          case "open-chest":
-            await handleOpenChest(ws, client, msg);
-            break;
+            await db
+              .update(gamesTable)
+              .set({ status: "playing" })
+              .where(eq(gamesTable.id, gameId));
 
-          case "next-question":
-            if (client.role === "host") {
-              const timer = questionTimers.get(gameId);
-              if (timer) clearTimeout(timer);
-              questionTimers.delete(gameId);
-              await sendNextQuestion(gameId);
+            startGameTimer(gameId, duration);
+            const gt = gameTimers.get(gameId)!;
+            broadcast(gameId, { type: "game-started", endsAt: gt.endsAt, remainingSeconds: duration });
+            break;
+          }
+
+          case "request-question": {
+            if (client.role !== "player" || !client.playerId) break;
+
+            const game = await db.query.gamesTable.findFirst({ where: eq(gamesTable.id, gameId) });
+            if (!game || game.status !== "playing") break;
+
+            const question = await getNextQuestionForPlayer(client, game.quizId);
+            if (!question) {
+              ws.send(JSON.stringify({ type: "no-questions" }));
+              break;
             }
-            break;
 
-          case "start-game":
-            if (client.role === "host") {
-              await db
-                .update(gamesTable)
-                .set({ status: "playing", currentQuestionIndex: -1 })
-                .where(eq(gamesTable.id, gameId));
-              broadcast(gameId, { type: "game-started" });
-              setTimeout(() => sendNextQuestion(gameId), 2000);
+            const player = await db.query.playersTable.findFirst({
+              where: and(eq(playersTable.id, client.playerId), eq(playersTable.gameId, gameId)),
+            });
+
+            ws.send(
+              JSON.stringify({
+                type: "question",
+                question: {
+                  id: question.id,
+                  text: question.text,
+                  options: question.options,
+                  timeLimit: question.timeLimit,
+                },
+                playerCoins: player?.coins ?? 0,
+              }),
+            );
+            break;
+          }
+
+          case "answer": {
+            if (client.role !== "player" || !client.playerId) break;
+
+            const game = await db.query.gamesTable.findFirst({ where: eq(gamesTable.id, gameId) });
+            if (!game || game.status !== "playing") break;
+
+            const question = await db.query.questionsTable.findFirst({
+              where: eq(questionsTable.id, msg.questionId),
+            });
+            if (!question) break;
+
+            const player = await db.query.playersTable.findFirst({
+              where: and(eq(playersTable.id, client.playerId), eq(playersTable.gameId, gameId)),
+            });
+            if (!player || player.isKicked) break;
+
+            const timedOut = msg.timedOut === true;
+            const correct = !timedOut && msg.answerIndex === question.correctAnswer;
+
+            let coinsEarned = 0;
+            let rewardType = "none";
+            let newConsecutive = correct ? player.consecutiveCorrect + 1 : 0;
+            let showChests = false;
+            let chestRewards: ReturnType<typeof buildChestRewardPool> | null = null;
+
+            if (correct) {
+              const baseReward = getCorrectAnswerReward(game.skillLuckScale, question.points);
+              coinsEarned = baseReward.coins;
+              rewardType = baseReward.type;
+
+              if (newConsecutive >= 3) {
+                showChests = true;
+                newConsecutive = 0;
+                chestRewards = buildChestRewardPool(game.skillLuckScale);
+              }
             }
-            break;
 
-          case "kick-player":
-            if (client.role === "host" && msg.playerId) {
-              await db
-                .update(playersTable)
-                .set({ isKicked: true })
-                .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
-              broadcast(gameId, { type: "player-kicked", playerId: msg.playerId });
-            }
-            break;
+            const newCoins = Math.max(0, player.coins + coinsEarned);
+            await db
+              .update(playersTable)
+              .set({
+                coins: newCoins,
+                correctAnswers: player.correctAnswers + (correct ? 1 : 0),
+                totalAnswers: player.totalAnswers + 1,
+                consecutiveCorrect: newConsecutive,
+              })
+              .where(eq(playersTable.id, player.id));
 
-          case "admin-update-coins":
-            if (msg.password === ADMIN_PASSWORD && msg.playerId !== undefined) {
-              await db
-                .update(playersTable)
-                .set({ coins: msg.coins })
-                .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
-              broadcast(gameId, {
-                type: "coins-updated",
-                playerId: msg.playerId,
-                coins: msg.coins,
+            ws.send(
+              JSON.stringify({
+                type: "answer-result",
+                correct,
+                timedOut,
+                coinsEarned,
+                rewardType,
+                newTotal: newCoins,
+                explanation: question.explanation ?? "No explanation available.",
+                correctAnswer: question.correctAnswer,
+                correctAnswerText: question.options[question.correctAnswer],
+              }),
+            );
+
+            if (showChests && chestRewards) {
+              pendingChests.set(client.playerId, {
+                gameId,
+                rewards: chestRewards,
+                playerCoins: newCoins,
               });
-            } else if (msg.password !== ADMIN_PASSWORD) {
-              ws.send(JSON.stringify({ type: "error", message: "Invalid admin password" }));
+              setTimeout(() => {
+                ws.send(JSON.stringify({ type: "show-chests" }));
+              }, 1800);
             }
+
+            await sendLeaderboardToHost(gameId);
+            broadcast(gameId, { type: "coins-updated", playerId: player.id, coins: newCoins }, ws);
             break;
+          }
+
+          case "open-chest": {
+            if (client.role !== "player" || !client.playerId) break;
+
+            const pending = pendingChests.get(client.playerId);
+            if (!pending) break;
+
+            const chestIdx = Math.max(0, Math.min(2, msg.chestIndex ?? 0));
+            const reward = pending.rewards[chestIdx];
+
+            const player = await db.query.playersTable.findFirst({
+              where: and(eq(playersTable.id, client.playerId), eq(playersTable.gameId, gameId)),
+            });
+            if (!player) break;
+
+            const { newCoins, coinsChange, stealInfo } = await applyChestReward(
+              player,
+              gameId,
+              reward,
+              ws,
+            );
+            pendingChests.delete(client.playerId);
+
+            ws.send(
+              JSON.stringify({
+                type: "chest-result",
+                reward: { ...reward, coinsChange },
+                newTotal: newCoins,
+                stealInfo,
+              }),
+            );
+
+            broadcast(gameId, { type: "coins-updated", playerId: player.id, coins: newCoins }, ws);
+            await sendLeaderboardToHost(gameId);
+            break;
+          }
+
+          case "admin-adjust-timer": {
+            if (msg.password !== ADMIN_PASSWORD) {
+              ws.send(JSON.stringify({ type: "error", message: "Invalid admin password" }));
+              break;
+            }
+            const newSeconds = typeof msg.newSeconds === "number" ? Math.max(0, msg.newSeconds) : null;
+            if (newSeconds === null) break;
+
+            const gt = gameTimers.get(gameId);
+            if (!gt) {
+              ws.send(JSON.stringify({ type: "error", message: "No active timer for this game" }));
+              break;
+            }
+
+            startGameTimer(gameId, newSeconds);
+            ws.send(JSON.stringify({ type: "timer-adjusted", newSeconds }));
+            broadcast(gameId, { type: "timer", remaining: newSeconds, endsAt: Date.now() + newSeconds * 1000 });
+            break;
+          }
+
+          case "admin-update-coins": {
+            if (msg.password !== ADMIN_PASSWORD) {
+              ws.send(JSON.stringify({ type: "error", message: "Invalid admin password" }));
+              break;
+            }
+            if (msg.playerId === undefined || msg.coins === undefined) break;
+
+            await db
+              .update(playersTable)
+              .set({ coins: msg.coins })
+              .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
+
+            broadcast(gameId, { type: "coins-updated", playerId: msg.playerId, coins: msg.coins });
+            break;
+          }
+
+          case "kick-player": {
+            if (client.role !== "host") break;
+            if (!msg.playerId) break;
+
+            await db
+              .update(playersTable)
+              .set({ isKicked: true })
+              .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
+
+            broadcast(gameId, { type: "player-kicked", playerId: msg.playerId });
+            break;
+          }
 
           default:
             break;
