@@ -10,7 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, ShieldAlert } from "lucide-react";
+import { Link } from "wouter";
 
 const codeSchema = z.object({
   code: z.string().length(6, "Code must be 6 characters").toUpperCase(),
@@ -181,6 +182,14 @@ export default function JoinGame() {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Admin corner button */}
+      <Link href="/admin">
+        <button className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-3 py-2 rounded-full bg-card/80 backdrop-blur border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all text-sm font-medium shadow-lg">
+          <ShieldAlert className="w-4 h-4" />
+          Admin
+        </button>
+      </Link>
     </div>
   );
 }

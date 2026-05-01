@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
-import { useLocation, useParams, Link } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { useGameWebSocket } from "@/hooks/use-game";
-import { useGetGame } from "@workspace/api-client-react";
-import { getGetGameQueryKey } from "@workspace/api-client-react";
+import { useGetGame, useListPlayers, useUpdatePlayer, useKickPlayer, getGetGameQueryKey, getListPlayersQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
-import { Coins, Loader2, Check, X, ArrowRight } from "lucide-react";
+import { Coins, Loader2, Check, X, ShieldAlert, Trash2 } from "lucide-react";
+
+const ADMIN_PASSWORD = "2026BIOlogy!";
 
 export default function PlayGame() {
   const params = useParams();
@@ -15,6 +19,7 @@ export default function PlayGame() {
   const playerId = parseInt(params.playerId || "0");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: game, isLoading: gameLoading } = useGetGame(gameId, {
     query: { enabled: !!gameId, queryKey: getGetGameQueryKey(gameId) }
@@ -33,6 +38,50 @@ export default function PlayGame() {
   const [result, setResult] = useState<{correct: boolean, coinsEarned: number, explanation: string, correctAnswer: number} | null>(null);
   const [chestResult, setChestResult] = useState<{reward: number, newTotal: number} | null>(null);
   const [chestsOpened, setChestsOpened] = useState(false);
+
+  // Admin panel state
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [editingCoins, setEditingCoins] = useState<Record<number, string>>({});
+
+  const { data: players } = useListPlayers(gameId, {
+    query: { queryKey: getListPlayersQueryKey(gameId), enabled: adminAuthed && adminOpen }
+  });
+  const updatePlayer = useUpdatePlayer();
+  const kickPlayer = useKickPlayer();
+
+  const handleAdminAuth = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPassword === ADMIN_PASSWORD) {
+      setAdminAuthed(true);
+    } else {
+      toast({ title: "Wrong password", variant: "destructive" });
+      setAdminPassword("");
+    }
+  };
+
+  const handleSaveCoins = (pid: number) => {
+    const val = parseInt(editingCoins[pid] ?? "0");
+    if (isNaN(val)) return;
+    updatePlayer.mutate({ gameId, playerId: pid, data: { coins: val, adminPassword: ADMIN_PASSWORD } }, {
+      onSuccess: () => {
+        toast({ title: "Coins updated" });
+        queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+        setEditingCoins(prev => { const n = { ...prev }; delete n[pid]; return n; });
+      },
+      onError: () => toast({ title: "Failed to update coins", variant: "destructive" }),
+    });
+  };
+
+  const handleKick = (pid: number) => {
+    kickPlayer.mutate({ gameId, playerId: pid }, {
+      onSuccess: () => {
+        toast({ title: "Player removed" });
+        queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+      },
+    });
+  };
 
   // Handle incoming websocket messages
   useEffect(() => {
@@ -119,7 +168,7 @@ export default function PlayGame() {
           {game?.quizTitle}
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {currentQuestion && (
             <div className="hidden md:block font-bold text-muted-foreground bg-muted px-4 py-1.5 rounded-full">
               Q: {questionIndex + 1} / {totalQuestions || '?'}
@@ -135,8 +184,84 @@ export default function PlayGame() {
             <Coins className="w-5 h-5 text-yellow-500" />
             <span className="font-bold font-mono text-lg">{coins}</span>
           </motion.div>
+
+          <button
+            onClick={() => setAdminOpen(true)}
+            className="p-2 rounded-full bg-card/80 border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all"
+            title="Admin Panel"
+          >
+            <ShieldAlert className="w-5 h-5" />
+          </button>
         </div>
       </div>
+
+      {/* Admin Dialog */}
+      <Dialog open={adminOpen} onOpenChange={setAdminOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-primary" /> Admin Panel
+            </DialogTitle>
+          </DialogHeader>
+
+          {!adminAuthed ? (
+            <form onSubmit={handleAdminAuth} className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">Enter the admin password to manage this game session.</p>
+              <Input
+                type="password"
+                placeholder="Admin password"
+                value={adminPassword}
+                onChange={e => setAdminPassword(e.target.value)}
+                autoFocus
+              />
+              <Button type="submit" className="w-full">Unlock</Button>
+            </form>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto py-2 pr-1">
+              <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Players in this game</p>
+              {players && players.length > 0 ? (
+                [...players].sort((a, b) => b.coins - a.coins).map((p, idx) => (
+                  <div key={p.id} className={`flex items-center gap-3 p-3 rounded-xl border ${p.isKicked ? "opacity-40" : "border-border"}`}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${idx === 0 ? "bg-yellow-500" : idx === 1 ? "bg-gray-400" : idx === 2 ? "bg-amber-700" : "bg-muted-foreground"}`}>
+                      {idx + 1}
+                    </div>
+                    <span className="flex-1 font-semibold truncate">{p.nickname}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Coins className="w-3 h-3 text-yellow-400" />
+                      <Input
+                        type="number"
+                        className="w-20 h-8 text-right text-sm"
+                        value={editingCoins[p.id] ?? p.coins}
+                        onChange={e => setEditingCoins(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        disabled={p.isKicked}
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => handleSaveCoins(p.id)}
+                        disabled={p.isKicked || editingCoins[p.id] === undefined || updatePlayer.isPending}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                        onClick={() => handleKick(p.id)}
+                        disabled={p.isKicked}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-muted-foreground py-6">No players yet</div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Main Content */}
       <div className="flex-1 relative z-10 flex flex-col items-center justify-center p-4">

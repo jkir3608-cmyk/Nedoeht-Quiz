@@ -18,33 +18,40 @@ router.post("/ai/generate-questions", async (req, res) => {
       ? `\n\nAlready existing questions (do NOT duplicate these):\n${existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`
       : "";
 
-  const prompt = `You are an expert quiz creator. Generate exactly ${count} multiple-choice quiz questions based on the following material.${existingStr}
+  const prompt = `You are an expert educator and quiz designer. Your task is to generate exactly ${count} high-quality multiple-choice quiz questions based on the provided material.${existingStr}
 
-Material:
+SOURCE MATERIAL:
 ${material}
 
-Requirements:
-- Each question must have exactly 4 answer options (A, B, C, D)
-- Only one answer is correct
-- Provide a clear, educational explanation for why the correct answer is right
-- Questions should be varied (facts, concepts, applications)
-- Make questions clear and unambiguous
+STRICT REQUIREMENTS:
+- Generate EXACTLY ${count} questions — no more, no less
+- Each question must have EXACTLY 4 answer options
+- Only ONE answer is correct
+- Questions must cover different aspects: facts, concepts, cause & effect, application, and analysis
+- Wrong answers (distractors) must be plausible but clearly incorrect upon reflection
+- Explanations must be educational, specific, and 2-4 sentences long
+- Questions should be in the same language as the source material
+- Do not make questions trivially easy (avoid questions answered directly by a single obvious sentence)
 
-Respond ONLY with a valid JSON array. No extra text. Format:
-[
-  {
-    "text": "Question text here?",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "correctAnswer": 0,
-    "explanation": "Explanation of why Option A is correct..."
-  }
-]
-The correctAnswer field is the 0-based index of the correct option.`;
+RESPOND ONLY with a JSON object containing a "questions" array. Example format:
+{
+  "questions": [
+    {
+      "text": "What is the primary reason for X?",
+      "options": ["Because A", "Because B", "Because C", "Because D"],
+      "correctAnswer": 2,
+      "explanation": "C is correct because... This matters because..."
+    }
+  ]
+}`;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-5-mini",
-    messages: [{ role: "user", content: prompt }],
-    max_completion_tokens: 4096,
+    model: "gpt-5.4",
+    messages: [
+      { role: "system", content: "You are a professional quiz designer. Always respond with valid JSON only." },
+      { role: "user", content: prompt }
+    ],
+    max_completion_tokens: 8192,
     response_format: { type: "json_object" },
   });
 
@@ -90,19 +97,29 @@ router.post("/ai/generate-explanation", async (req, res) => {
 
   const correctOption = options[correctAnswer];
 
-  const prompt = `You are an educational assistant. A student just answered a quiz question.
+  const prompt = `A student just answered this quiz question and you need to write a clear explanation.
 
 Question: ${questionText}
-Options:
-${options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join("\n")}
-Correct answer: ${String.fromCharCode(65 + correctAnswer)}. ${correctOption}
 
-Write a short, clear explanation (2-3 sentences) of why "${correctOption}" is the correct answer. Be educational and encouraging. Write as if speaking directly to a student.`;
+Answer options:
+${options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join("\n")}
+
+The correct answer is: ${String.fromCharCode(65 + correctAnswer)}. ${correctOption}
+
+Write a 2-3 sentence educational explanation that:
+1. Clearly states WHY "${correctOption}" is the correct answer
+2. Briefly explains what makes the other options wrong or why this concept matters
+3. Uses language appropriate for a student
+
+Be direct and informative. Do not start with "That's correct!" or similar phrases. Just explain the concept.`;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-5-mini",
-    messages: [{ role: "user", content: prompt }],
-    max_completion_tokens: 256,
+    model: "gpt-5.4",
+    messages: [
+      { role: "system", content: "You are a concise educational tutor. Write clear, accurate explanations in 2-3 sentences." },
+      { role: "user", content: prompt }
+    ],
+    max_completion_tokens: 512,
   });
 
   const explanation =
