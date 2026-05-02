@@ -26,9 +26,20 @@ interface PendingChest {
   skillLuckScale: number;
 }
 
+interface ActivePopup {
+  id: string;
+  target: "all" | "host" | { gameId: number; playerId: number };
+  mediaType: "image" | "video";
+  mediaSrc: string;
+  size: "small" | "medium" | "fullscreen";
+  duration: number; // seconds, 0 = permanent
+  createdAt: number;
+}
+
 const clients = new Map<WebSocket, GameClient>();
 const gameTimers = new Map<number, GameTimer>();
 const pendingChests = new Map<number, PendingChest>(); // keyed by playerId
+const activePopups = new Map<string, ActivePopup>(); // global, persists across games
 
 function getGameClients(gameId: number) {
   return Array.from(clients.values()).filter((c) => c.gameId === gameId);
@@ -59,6 +70,27 @@ function sendToHost(gameId: number, data: object) {
       c.ws.send(msg);
     }
   });
+}
+
+function matchesPopupTarget(popup: ActivePopup, client: GameClient): boolean {
+  if (popup.target === "all") return true;
+  if (popup.target === "host" && client.role === "host") return true;
+  if (
+    typeof popup.target === "object" &&
+    client.role === "player" &&
+    client.playerId === popup.target.playerId &&
+    client.gameId === popup.target.gameId
+  ) return true;
+  return false;
+}
+
+function sendPopupToTargets(popup: ActivePopup) {
+  const msg = JSON.stringify({ type: "media-popup", popup });
+  for (const [, c] of clients) {
+    if (c.ws.readyState === WebSocket.OPEN && matchesPopupTarget(popup, c)) {
+      c.ws.send(msg);
+    }
+  }
 }
 
 function sortWithPinnedRanks(players: any[]) {
@@ -415,6 +447,13 @@ export function setupWebSocket(wss: WebSocketServer) {
 
     logger.info({ gameId, role, playerId }, "WebSocket client connected");
 
+    // Send any currently active popups to this newly connected client
+    for (const popup of activePopups.values()) {
+      if (matchesPopupTarget(popup, client)) {
+        ws.send(JSON.stringify({ type: "media-popup", popup }));
+      }
+    }
+
     if (role === "player" && playerId) {
       db.query.playersTable
         .findFirst({ where: and(eq(playersTable.id, playerId), eq(playersTable.gameId, gameId)) })
@@ -714,6 +753,60 @@ export function setupWebSocket(wss: WebSocketServer) {
               .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
 
             broadcast(gameId, { type: "player-kicked", playerId: msg.playerId });
+            break;
+          }
+
+          case "admin-media-popup": {
+            if (msg.password !== ADMIN_PASSWORD) {
+              ws.send(JSON.stringify({ type: "error", message: "Invalid admin password" }));
+              break;
+            }
+            if (!msg.mediaSrc) break;
+
+            const popupId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+            const target: ActivePopup["target"] =
+              msg.target === "all" ? "all"
+              : msg.target === "host" ? "host"
+              : { gameId, playerId: Number(msg.targetPlayerId) };
+
+            const popup: ActivePopup = {
+              id: popupId,
+              target,
+              mediaType: msg.mediaType === "video" ? "video" : "image",
+              mediaSrc: String(msg.mediaSrc),
+              size: ["small", "medium", "fullscreen"].includes(msg.size) ? msg.size : "medium",
+              duration: Number(msg.duration) || 0,
+              createdAt: Date.now(),
+            };
+
+            activePopups.set(popupId, popup);
+            sendPopupToTargets(popup);
+            ws.send(JSON.stringify({ type: "popup-created", popup }));
+            break;
+          }
+
+          case "admin-dismiss-popup": {
+            if (msg.password !== ADMIN_PASSWORD) {
+              ws.send(JSON.stringify({ type: "error", message: "Invalid admin password" }));
+              break;
+            }
+            const popup = activePopups.get(msg.popupId);
+            if (popup) {
+              activePopups.delete(msg.popupId);
+              const dismissMsg = JSON.stringify({ type: "media-popup-dismiss", popupId: msg.popupId });
+              for (const [, c] of clients) {
+                if (c.ws.readyState === WebSocket.OPEN && matchesPopupTarget(popup, c)) {
+                  c.ws.send(dismissMsg);
+                }
+              }
+            }
+            ws.send(JSON.stringify({ type: "popup-dismissed", popupId: msg.popupId }));
+            break;
+          }
+
+          case "get-active-popups": {
+            if (msg.password !== ADMIN_PASSWORD) break;
+            ws.send(JSON.stringify({ type: "active-popups", popups: Array.from(activePopups.values()) }));
             break;
           }
 

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, StopCircle, ShieldAlert, Coins, Clock } from "lucide-react";
+import { MediaPopupOverlay, type PopupData } from "@/components/media-popup";
 
 const ADMIN_PASSWORD = "2026BIOlogy!";
 
@@ -50,6 +51,7 @@ export default function HostGame() {
   const [adminPassword, setAdminPassword] = useState("");
   const [isAdminAuth, setIsAdminAuth] = useState(false);
   const [newTimerSeconds, setNewTimerSeconds] = useState("");
+  const [activePopups, setActivePopups] = useState<PopupData[]>([]);
 
   const localTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -89,6 +91,12 @@ export default function HostGame() {
       setLiveLeaderboard((prev) => prev.filter((p) => p.id !== (msg as any).playerId));
     } else if (msg.type === "game-ended") {
       setLocation(`/results/${gameId}`);
+    } else if ((msg as any).type === "media-popup") {
+      const popup = (msg as any).popup as PopupData;
+      setActivePopups(prev => [...prev.filter(p => p.id !== popup.id), popup]);
+    } else if ((msg as any).type === "media-popup-dismiss") {
+      const popupId = (msg as any).popupId as string;
+      setActivePopups(prev => prev.filter(p => p.id !== popupId));
     }
   }, [messages, gameId, setLocation]);
 
@@ -169,6 +177,10 @@ export default function HostGame() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      <MediaPopupOverlay
+        popups={activePopups}
+        onAutoDismiss={(id) => setActivePopups(prev => prev.filter(p => p.id !== id))}
+      />
       {/* Header */}
       <div className="bg-card border-b px-6 py-3 flex justify-between items-center shrink-0">
         <div>

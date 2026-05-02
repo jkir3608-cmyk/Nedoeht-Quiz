@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { Coins, Loader2, Check, X, ShieldAlert, Trash2, Clock } from "lucide-react";
+import { MediaPopupOverlay, type PopupData } from "@/components/media-popup";
 
 const ADMIN_PASSWORD = "2026BIOlogy!";
 
@@ -112,6 +113,7 @@ export default function PlayGame() {
   const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [coinLabel, setCoinLabel] = useState<string | null>(null);
+  const [activePopups, setActivePopups] = useState<PopupData[]>([]);
 
   // Admin panel state
   const [adminOpen, setAdminOpen] = useState(false);
@@ -280,6 +282,12 @@ export default function PlayGame() {
       const r = msg as any;
       if (r.coins !== undefined) setCoins(r.coins);
       if ("coinLabel" in r) setCoinLabel(r.coinLabel ?? null);
+    } else if ((msg as any).type === "media-popup") {
+      const popup = (msg as any).popup as PopupData;
+      setActivePopups(prev => [...prev.filter(p => p.id !== popup.id), popup]);
+    } else if ((msg as any).type === "media-popup-dismiss") {
+      const popupId = (msg as any).popupId as string;
+      setActivePopups(prev => prev.filter(p => p.id !== popupId));
     }
   }, [messages, gameId, playerId, setLocation, toast, requestNextQuestion, startQuestionTimer, startWrongCountdown, coins]);
 
@@ -372,6 +380,10 @@ export default function PlayGame() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative overflow-hidden">
+      <MediaPopupOverlay
+        popups={activePopups}
+        onAutoDismiss={(id) => setActivePopups(prev => prev.filter(p => p.id !== id))}
+      />
       <div className="absolute inset-0 z-0 opacity-5 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary via-background to-background" />
 
       {/* Header */}
