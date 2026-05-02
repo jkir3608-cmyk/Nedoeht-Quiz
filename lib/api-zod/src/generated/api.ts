@@ -69,6 +69,14 @@ export const ListQuizzesResponseItem = zod.object({
   coverColor: zod.string().optional(),
   questionCount: zod.number(),
   playCount: zod.number(),
+  realPlayCount: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the real unmodified play count"),
+  playCountOffset: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the offset added to real play count for display"),
   isPublic: zod.boolean(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -95,6 +103,14 @@ export const ListPublicQuizzesResponseItem = zod.object({
   coverColor: zod.string().optional(),
   questionCount: zod.number(),
   playCount: zod.number(),
+  realPlayCount: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the real unmodified play count"),
+  playCountOffset: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the offset added to real play count for display"),
   isPublic: zod.boolean(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -118,6 +134,14 @@ export const GetQuizResponse = zod
     coverColor: zod.string().optional(),
     questionCount: zod.number(),
     playCount: zod.number(),
+    realPlayCount: zod
+      .number()
+      .optional()
+      .describe("Admin-only: the real unmodified play count"),
+    playCountOffset: zod
+      .number()
+      .optional()
+      .describe("Admin-only: the offset added to real play count for display"),
     isPublic: zod.boolean(),
     createdAt: zod.coerce.date(),
     updatedAt: zod.coerce.date(),
@@ -164,6 +188,14 @@ export const UpdateQuizResponse = zod.object({
   coverColor: zod.string().optional(),
   questionCount: zod.number(),
   playCount: zod.number(),
+  realPlayCount: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the real unmodified play count"),
+  playCountOffset: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the offset added to real play count for display"),
   isPublic: zod.boolean(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -399,6 +431,16 @@ export const GetGameResponse = zod
           coverColor: zod.string().optional(),
           questionCount: zod.number(),
           playCount: zod.number(),
+          realPlayCount: zod
+            .number()
+            .optional()
+            .describe("Admin-only: the real unmodified play count"),
+          playCountOffset: zod
+            .number()
+            .optional()
+            .describe(
+              "Admin-only: the offset added to real play count for display",
+            ),
           isPublic: zod.boolean(),
           createdAt: zod.coerce.date(),
           updatedAt: zod.coerce.date(),
@@ -551,6 +593,37 @@ export const KickPlayerParams = zod.object({
 
 export const KickPlayerResponse = zod.object({
   message: zod.string(),
+});
+
+/**
+ * @summary Admin - set displayed play count for a quiz (offset-based)
+ */
+export const AdminSetPlayCountBody = zod.object({
+  password: zod.string(),
+  quizId: zod.number(),
+  displayPlayCount: zod
+    .number()
+    .describe("The number everyone will see (real + offset = this)"),
+});
+
+export const AdminSetPlayCountResponse = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().optional(),
+  coverColor: zod.string().optional(),
+  questionCount: zod.number(),
+  playCount: zod.number(),
+  realPlayCount: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the real unmodified play count"),
+  playCountOffset: zod
+    .number()
+    .optional()
+    .describe("Admin-only: the offset added to real play count for display"),
+  isPublic: zod.boolean(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
 });
 
 /**

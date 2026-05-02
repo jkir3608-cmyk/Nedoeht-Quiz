@@ -61,7 +61,7 @@ function sendToHost(gameId: number, data: object) {
   });
 }
 
-function sortWithPinnedRanks(players: { id: number; coins: number; pinnedRank?: number | null }[]) {
+function sortWithPinnedRanks(players: any[]) {
   const pinnedPlayers = [...players.filter((p) => p.pinnedRank != null)].sort(
     (a, b) => (a.pinnedRank ?? 999) - (b.pinnedRank ?? 999),
   );

@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AdminSetPlayCountBody,
   AiExplanationResponse,
   AiGenerateExplanationBody,
   AiGenerateQuestionsBody,
@@ -2211,6 +2212,92 @@ export const useKickPlayer = <
   TContext
 > => {
   return useMutation(getKickPlayerMutationOptions(options));
+};
+
+/**
+ * @summary Admin - set displayed play count for a quiz (offset-based)
+ */
+export const getAdminSetPlayCountUrl = () => {
+  return `/api/quizzes/admin/set-play-count`;
+};
+
+export const adminSetPlayCount = async (
+  adminSetPlayCountBody: AdminSetPlayCountBody,
+  options?: RequestInit,
+): Promise<Quiz> => {
+  return customFetch<Quiz>(getAdminSetPlayCountUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminSetPlayCountBody),
+  });
+};
+
+export const getAdminSetPlayCountMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminSetPlayCount>>,
+    TError,
+    { data: BodyType<AdminSetPlayCountBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminSetPlayCount>>,
+  TError,
+  { data: BodyType<AdminSetPlayCountBody> },
+  TContext
+> => {
+  const mutationKey = ["adminSetPlayCount"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminSetPlayCount>>,
+    { data: BodyType<AdminSetPlayCountBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return adminSetPlayCount(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminSetPlayCountMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminSetPlayCount>>
+>;
+export type AdminSetPlayCountMutationBody = BodyType<AdminSetPlayCountBody>;
+export type AdminSetPlayCountMutationError = ErrorType<void>;
+
+/**
+ * @summary Admin - set displayed play count for a quiz (offset-based)
+ */
+export const useAdminSetPlayCount = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminSetPlayCount>>,
+    TError,
+    { data: BodyType<AdminSetPlayCountBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminSetPlayCount>>,
+  TError,
+  { data: BodyType<AdminSetPlayCountBody> },
+  TContext
+> => {
+  return useMutation(getAdminSetPlayCountMutationOptions(options));
 };
 
 /**

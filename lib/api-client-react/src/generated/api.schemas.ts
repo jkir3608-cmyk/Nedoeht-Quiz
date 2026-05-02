@@ -40,6 +40,10 @@ export interface Quiz {
   coverColor?: string;
   questionCount: number;
   playCount: number;
+  /** Admin-only: the real unmodified play count */
+  realPlayCount?: number;
+  /** Admin-only: the offset added to real play count for display */
+  playCountOffset?: number;
   isPublic: boolean;
   createdAt: string;
   updatedAt: string;
@@ -63,6 +67,13 @@ export interface Question {
 export type QuizWithQuestions = Quiz & {
   questions: Question[];
 };
+
+export interface AdminSetPlayCountBody {
+  password: string;
+  quizId: number;
+  /** The number everyone will see (real + offset = this) */
+  displayPlayCount: number;
+}
 
 export interface CreateQuizBody {
   title: string;

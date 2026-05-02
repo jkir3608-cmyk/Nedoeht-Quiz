@@ -550,6 +550,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /quizzes/admin/set-play-count:
+    post:
+      operationId: adminSetPlayCount
+      tags: [quizzes]
+      summary: Admin - set displayed play count for a quiz (offset-based)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSetPlayCountBody"
+      responses:
+        "200":
+          description: Updated quiz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quiz"
+        "401":
+          description: Wrong admin password
+        "404":
+          description: Quiz not found
+
   /dashboard/stats:
     get:
       operationId: getDashboardStats
@@ -691,6 +714,21 @@ components:
                 $ref: "#/components/schemas/Question"
           required:
             - questions
+
+    AdminSetPlayCountBody:
+      type: object
+      properties:
+        password:
+          type: string
+        quizId:
+          type: integer
+        displayPlayCount:
+          type: integer
+          description: The number everyone will see (real + offset = this)
+      required:
+        - password
+        - quizId
+        - displayPlayCount
 
     CreateQuizBody:
       type: object
