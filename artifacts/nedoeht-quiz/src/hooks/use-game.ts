@@ -24,7 +24,8 @@ export type GameMessage =
   | { type: "question"; question: any; playerCoins: number }
   | { type: "answer-result"; correct: boolean; timedOut: boolean; coinsEarned: number; rewardType: string; newTotal: number; explanation: string; correctAnswer: number; correctAnswerText: string }
   | { type: "show-chests" }
-  | { type: "chest-result"; reward: any; newTotal: number; stealInfo: any }
+  | { type: "chest-result"; reward: any; newTotal: number; swapInfo: any }
+  | { type: "coins-swapped"; yourOldCoins: number; yourNewCoins: number; swappedWith: string }
   | { type: "leaderboard"; players: any[] }
   | { type: "game-ended"; players: any[] }
   | { type: "player-kicked"; playerId: number }

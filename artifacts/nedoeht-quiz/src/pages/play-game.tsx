@@ -88,8 +88,9 @@ export default function PlayGame() {
   const [chestResult, setChestResult] = useState<{
     reward: { label: string; coinsChange: number };
     newTotal: number;
-    stealInfo: { fromNickname: string; stolen: number } | null;
+    swapInfo: { withNickname: string; theirOldCoins: number; myOldCoins: number } | null;
   } | null>(null);
+  const [swapNotification, setSwapNotification] = useState<{ swappedWith: string; yourOldCoins: number; yourNewCoins: number } | null>(null);
   const [coins, setCoins] = useState(0);
   const [questionTimer, setQuestionTimer] = useState(0);
   const [questionTimerMax, setQuestionTimerMax] = useState(30);
@@ -241,13 +242,16 @@ export default function PlayGame() {
       if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
     } else if (msg.type === "chest-result") {
       const r = msg as any;
-      setChestResult({ reward: r.reward, newTotal: r.newTotal, stealInfo: r.stealInfo });
+      setChestResult({ reward: r.reward, newTotal: r.newTotal, swapInfo: r.swapInfo });
       setCoins(r.newTotal);
       setChestsOpened(true);
       setPhase("chest-opened");
-      autoAdvanceRef.current = setTimeout(() => {
-        requestNextQuestion();
-      }, 3000);
+      // No auto-advance — player must click Continue
+    } else if ((msg as any).type === "coins-swapped") {
+      const r = msg as any;
+      setSwapNotification({ swappedWith: r.swappedWith, yourOldCoins: r.yourOldCoins, yourNewCoins: r.yourNewCoins });
+      setCoins(r.yourNewCoins);
+      setTimeout(() => setSwapNotification(null), 5000);
     } else if (msg.type === "game-ended") {
       setLocation(`/results/${gameId}`);
     } else if (msg.type === "player-kicked" && (msg as any).playerId === playerId) {
@@ -375,6 +379,31 @@ export default function PlayGame() {
           </button>
         </div>
       </div>
+
+      {/* Coin Swap Alert Banner */}
+      <AnimatePresence>
+        {swapNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -80 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -80 }}
+            className="fixed top-0 inset-x-0 z-50 pointer-events-none flex justify-center"
+          >
+            <div className="mt-4 mx-4 bg-purple-600 text-white rounded-2xl shadow-2xl border-2 border-purple-400 px-6 py-4 flex items-center gap-4 max-w-sm">
+              <div className="text-3xl">🔄</div>
+              <div>
+                <p className="font-black text-base leading-tight">Coin Swap!</p>
+                <p className="text-sm text-purple-100">
+                  <strong>{swapNotification.swappedWith}</strong> swapped coins with you!
+                </p>
+                <p className="text-sm text-purple-100">
+                  {swapNotification.yourOldCoins} → <strong>{swapNotification.yourNewCoins}</strong> coins
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Admin Dialog */}
       <Dialog open={adminOpen} onOpenChange={setAdminOpen}>
@@ -687,39 +716,73 @@ export default function PlayGame() {
               key="chests"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="w-full max-w-3xl text-center space-y-10"
+              className="w-full max-w-3xl text-center space-y-8"
             >
-              <motion.div
-                initial={{ y: -20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.2 }}
-              >
-                <div className="text-yellow-400 text-5xl mb-2">🎉</div>
-                <h2 className="text-4xl md:text-6xl font-black text-primary">3 in a Row!</h2>
-                <p className="text-xl text-muted-foreground mt-2 font-medium">
-                  Choose a chest for your reward
-                </p>
+              <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.15 }}>
+                <div className="text-5xl mb-2">🎊</div>
+                <h2 className="text-4xl md:text-6xl font-black text-primary">3 Correct!</h2>
+                <p className="text-lg text-muted-foreground mt-2 font-medium">Pick a chest — your reward awaits!</p>
               </motion.div>
 
-              <div className="grid grid-cols-3 gap-6">
-                {[0, 1, 2].map((idx) => (
-                  <motion.button
-                    key={idx}
-                    initial={{ y: 30, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 0.3 + idx * 0.1 }}
-                    whileHover={{ scale: 1.05, y: -8 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleOpenChest(idx)}
-                    className="relative aspect-square"
-                  >
-                    <div className="w-full h-full bg-gradient-to-br from-yellow-400 to-amber-700 rounded-3xl shadow-2xl border-4 border-yellow-300 flex flex-col items-center justify-center relative overflow-hidden">
-                      <div className="text-6xl">📦</div>
-                      <div className="text-xl font-black text-yellow-100 mt-2">?</div>
-                    </div>
-                  </motion.button>
-                ))}
+              <div className="grid grid-cols-3 gap-5">
+                {/* Wooden chest */}
+                <motion.button
+                  initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.25 }}
+                  whileHover={{ scale: 1.07, y: -10 }} whileTap={{ scale: 0.93 }}
+                  onClick={() => handleOpenChest(0)}
+                  disabled={chestsOpened}
+                  className="group relative aspect-square focus:outline-none"
+                >
+                  <div className="w-full h-full rounded-3xl flex flex-col items-center justify-center gap-2 p-4
+                    bg-gradient-to-b from-amber-700 via-amber-800 to-amber-900
+                    border-4 border-amber-600 shadow-2xl shadow-amber-900/60
+                    group-hover:shadow-amber-600/40 transition-shadow">
+                    <div className="text-5xl drop-shadow">🪵</div>
+                    <div className="w-full h-1.5 bg-amber-600 rounded-full opacity-60" />
+                    <span className="text-amber-200 font-black text-sm uppercase tracking-widest">Wood</span>
+                  </div>
+                </motion.button>
+
+                {/* Iron chest */}
+                <motion.button
+                  initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.35 }}
+                  whileHover={{ scale: 1.07, y: -10 }} whileTap={{ scale: 0.93 }}
+                  onClick={() => handleOpenChest(1)}
+                  disabled={chestsOpened}
+                  className="group relative aspect-square focus:outline-none"
+                >
+                  <div className="w-full h-full rounded-3xl flex flex-col items-center justify-center gap-2 p-4
+                    bg-gradient-to-b from-slate-400 via-slate-500 to-slate-700
+                    border-4 border-slate-300 shadow-2xl shadow-slate-900/60
+                    group-hover:shadow-slate-400/40 transition-shadow">
+                    <div className="text-5xl drop-shadow">⚙️</div>
+                    <div className="w-full h-1.5 bg-slate-300 rounded-full opacity-60" />
+                    <span className="text-slate-100 font-black text-sm uppercase tracking-widest">Iron</span>
+                  </div>
+                </motion.button>
+
+                {/* Gold chest */}
+                <motion.button
+                  initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.45 }}
+                  whileHover={{ scale: 1.07, y: -10 }} whileTap={{ scale: 0.93 }}
+                  onClick={() => handleOpenChest(2)}
+                  disabled={chestsOpened}
+                  className="group relative aspect-square focus:outline-none"
+                >
+                  <div className="w-full h-full rounded-3xl flex flex-col items-center justify-center gap-2 p-4
+                    bg-gradient-to-b from-yellow-300 via-yellow-400 to-yellow-600
+                    border-4 border-yellow-200 shadow-2xl shadow-yellow-500/60
+                    group-hover:shadow-yellow-300/60 transition-shadow">
+                    <div className="text-5xl drop-shadow">💛</div>
+                    <div className="w-full h-1.5 bg-yellow-200 rounded-full opacity-60" />
+                    <span className="text-yellow-900 font-black text-sm uppercase tracking-widest">Gold</span>
+                  </div>
+                </motion.button>
               </div>
+
+              <p className="text-muted-foreground text-xs uppercase tracking-widest font-medium">
+                All chests have the same random reward — pick any!
+              </p>
             </motion.div>
           )}
 
@@ -727,40 +790,67 @@ export default function PlayGame() {
           {phase === "chest-opened" && chestResult && (
             <motion.div
               key="chest-opened"
-              initial={{ opacity: 0, scale: 0.5 }}
+              initial={{ opacity: 0, scale: 0.6 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="w-full max-w-lg text-center space-y-6"
+              transition={{ type: "spring", stiffness: 260, damping: 20 }}
+              className="w-full max-w-lg text-center space-y-5"
             >
-              <div className="text-8xl">🎁</div>
-              <div>
-                <h2 className="text-3xl font-black text-primary mb-2">
+              <motion.div
+                animate={{ rotate: [0, -8, 8, -4, 4, 0] }}
+                transition={{ delay: 0.2, duration: 0.6 }}
+                className="text-8xl"
+              >
+                🎁
+              </motion.div>
+
+              <div className="space-y-2">
+                <h2 className={`text-3xl md:text-4xl font-black ${chestResult.reward.coinsChange >= 0 ? "text-primary" : "text-red-400"}`}>
                   {chestResult.reward.label}
                 </h2>
+
                 {chestResult.reward.coinsChange !== 0 && (
-                  <div
-                    className={`text-4xl font-black flex items-center justify-center gap-2 ${
+                  <motion.div
+                    initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.3, type: "spring" }}
+                    className={`text-5xl font-black flex items-center justify-center gap-2 ${
                       chestResult.reward.coinsChange > 0 ? "text-yellow-400" : "text-red-400"
                     }`}
                   >
                     {chestResult.reward.coinsChange > 0 ? "+" : ""}
                     {chestResult.reward.coinsChange}
-                    <Coins className="w-9 h-9" />
-                  </div>
+                    <Coins className="w-10 h-10" />
+                  </motion.div>
                 )}
-                {chestResult.stealInfo && (
-                  <p className="text-muted-foreground mt-2">
-                    Stole {chestResult.stealInfo.stolen} coins from{" "}
-                    <strong>{chestResult.stealInfo.fromNickname}</strong>!
-                  </p>
+
+                {chestResult.swapInfo && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+                    className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mt-3"
+                  >
+                    <p className="text-purple-300 font-bold text-base">
+                      🔄 Coin swap with <strong className="text-white">{chestResult.swapInfo.withNickname}</strong>!
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      You had {chestResult.swapInfo.myOldCoins} → now you have {chestResult.newTotal} coins
+                    </p>
+                  </motion.div>
                 )}
               </div>
-              <div className="flex items-center justify-center gap-2 text-xl font-bold">
-                <Coins className="w-6 h-6 text-yellow-400" />
-                <span>Total: {chestResult.newTotal} coins</span>
+
+              <div className="bg-card/60 rounded-2xl border border-border px-6 py-4 flex items-center justify-center gap-3">
+                <Coins className="w-7 h-7 text-yellow-400" />
+                <span className="text-2xl font-black">{chestResult.newTotal}</span>
+                <span className="text-muted-foreground font-medium">coins total</span>
               </div>
-              <p className="text-muted-foreground text-sm animate-pulse uppercase tracking-widest">
-                Continuing…
-              </p>
+
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+                <Button
+                  size="lg"
+                  className="h-14 px-12 text-lg font-black shadow-[0_4px_0_0_hsl(var(--primary)/0.5)] active:shadow-none active:translate-y-1 transition-all"
+                  onClick={requestNextQuestion}
+                >
+                  Continue →
+                </Button>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>

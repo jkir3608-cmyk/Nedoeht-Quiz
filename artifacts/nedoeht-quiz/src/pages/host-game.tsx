@@ -286,11 +286,15 @@ export default function HostGame() {
                     </div>
                   </div>
 
-                  {/* Coins */}
-                  <div className="flex items-center gap-1 font-black text-sm text-yellow-400 shrink-0 font-mono">
-                    <Coins className="w-3.5 h-3.5" />
-                    {player.coins}
-                  </div>
+                  {/* Coins — Blooket-style badge */}
+                  <motion.div
+                    key={`${player.id}-${player.coins}`}
+                    initial={{ scale: 1.25 }}
+                    animate={{ scale: 1 }}
+                    className="flex items-center gap-1 bg-yellow-400/15 border border-yellow-400/40 rounded-full px-2.5 py-1 font-black text-base text-yellow-300 shrink-0 font-mono"
+                  >
+                    🪙 {player.coins}
+                  </motion.div>
                 </motion.div>
               ))}
             </AnimatePresence>
