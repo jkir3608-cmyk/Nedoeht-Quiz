@@ -112,12 +112,11 @@ router.get("/quizzes/admin/public", async (req, res) => {
 
 // Admin: set the displayed play count for a quiz
 router.post("/quizzes/admin/set-play-count", async (req, res) => {
-  const parsed = AdminSetPlayCountBody.safeParse(req.body);
-  if (!parsed.success) {
+  const { password, quizId, displayPlayCount } = req.body ?? {};
+  if (typeof password !== "string" || typeof quizId !== "number" || typeof displayPlayCount !== "number" || displayPlayCount < 0) {
     res.status(400).json({ message: "Invalid body" });
     return;
   }
-  const { password, quizId, displayPlayCount } = parsed.data;
   if (password !== ADMIN_PASSWORD) {
     res.status(401).json({ message: "Wrong password" });
     return;
