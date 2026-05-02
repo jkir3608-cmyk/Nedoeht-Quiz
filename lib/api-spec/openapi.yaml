@@ -657,6 +657,12 @@ components:
           type: integer
         playCount:
           type: integer
+        realPlayCount:
+          type: integer
+          description: "Admin-only: the real unmodified play count"
+        playCountOffset:
+          type: integer
+          description: "Admin-only: the offset added to real play count for display"
         isPublic:
           type: boolean
         createdAt:
