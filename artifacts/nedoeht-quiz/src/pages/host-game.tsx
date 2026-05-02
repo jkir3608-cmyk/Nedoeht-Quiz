@@ -316,7 +316,7 @@ export default function HostGame() {
                     animate={{ scale: 1 }}
                     className={`flex items-center gap-1 border rounded-full px-2.5 py-1 font-black text-sm shrink-0 font-mono ${
                       player.coinLabel
-                        ? "bg-purple-500/15 border-purple-400/40 text-purple-300"
+                        ? "bg-red-500/15 border-red-400/40 text-red-300"
                         : "bg-yellow-400/15 border-yellow-400/40 text-yellow-300"
                     }`}
                   >
@@ -324,7 +324,7 @@ export default function HostGame() {
                   </motion.div>
                   {/* Pinned rank badge */}
                   {player.pinnedRank != null && (
-                    <div className="text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded px-1 font-bold shrink-0">
+                    <div className="text-xs bg-teal-500/20 text-teal-300 border border-teal-500/30 rounded px-1 font-bold shrink-0">
                       📌{player.pinnedRank}
                     </div>
                   )}
