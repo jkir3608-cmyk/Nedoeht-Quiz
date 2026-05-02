@@ -387,6 +387,7 @@ export const GetGameResponse = zod
           totalAnswers: zod.number(),
           isKicked: zod.boolean(),
           avatarColor: zod.string(),
+          avatar: zod.string(),
           joinedAt: zod.coerce.date(),
         }),
       ),
@@ -435,6 +436,7 @@ export const JoinGameParams = zod.object({
 
 export const JoinGameBody = zod.object({
   nickname: zod.string(),
+  avatar: zod.string().optional(),
 });
 
 export const JoinGameResponse = zod.object({
@@ -446,6 +448,7 @@ export const JoinGameResponse = zod.object({
   totalAnswers: zod.number(),
   isKicked: zod.boolean(),
   avatarColor: zod.string(),
+  avatar: zod.string(),
   joinedAt: zod.coerce.date(),
 });
 
@@ -507,6 +510,7 @@ export const ListPlayersResponseItem = zod.object({
   totalAnswers: zod.number(),
   isKicked: zod.boolean(),
   avatarColor: zod.string(),
+  avatar: zod.string(),
   joinedAt: zod.coerce.date(),
 });
 export const ListPlayersResponse = zod.array(ListPlayersResponseItem);
@@ -533,6 +537,7 @@ export const UpdatePlayerResponse = zod.object({
   totalAnswers: zod.number(),
   isKicked: zod.boolean(),
   avatarColor: zod.string(),
+  avatar: zod.string(),
   joinedAt: zod.coerce.date(),
 });
 

@@ -22,6 +22,7 @@ export const playersTable = pgTable("players", {
   consecutiveCorrect: integer("consecutive_correct").notNull().default(0),
   isKicked: boolean("is_kicked").notNull().default(false),
   avatarColor: text("avatar_color").notNull().default("#7C3AED"),
+  avatar: text("avatar").notNull().default("🐱"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 

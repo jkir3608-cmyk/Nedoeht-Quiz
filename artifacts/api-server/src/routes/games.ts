@@ -201,6 +201,7 @@ router.post("/games/:gameId/join", async (req, res) => {
       gameId,
       nickname: parsed.data.nickname,
       avatarColor: randomAvatarColor(),
+      avatar: parsed.data.avatar ?? "🐱",
     })
     .returning();
 

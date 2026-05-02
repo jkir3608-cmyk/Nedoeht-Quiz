@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useLocation, useParams } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useGetGame, useListPlayers } from "@workspace/api-client-react";
 import { getGetGameQueryKey, getListPlayersQueryKey } from "@workspace/api-client-react";
 import { useGameWebSocket } from "@/hooks/use-game";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -20,13 +19,18 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+const RANK_STYLES = [
+  "bg-yellow-500 text-white shadow-lg shadow-yellow-500/40",
+  "bg-gray-300 text-gray-800",
+  "bg-amber-600 text-white",
+];
+
 export default function HostGame() {
   const { isLoading: authLoading } = useRequireAuth();
   const params = useParams();
   const gameId = parseInt(params.gameId || "0");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const { data: game, isLoading: gameLoading } = useGetGame(gameId, {
     query: { enabled: !!gameId, queryKey: getGetGameQueryKey(gameId) },
@@ -127,28 +131,32 @@ export default function HostGame() {
     setNewTimerSeconds("");
   };
 
-  const timerPct = endsAt && timeRemaining !== null
-    ? Math.max(0, Math.min(100, (timeRemaining / ((endsAt - Date.now()) / 1000 + timeRemaining)) * 100))
-    : 100;
+  const timerColor =
+    timeRemaining === null
+      ? "text-muted-foreground"
+      : timeRemaining > 60
+      ? "text-green-400"
+      : timeRemaining > 20
+      ? "text-yellow-400"
+      : "text-red-400 animate-pulse";
 
-  const timerColor = timeRemaining === null
-    ? "text-muted-foreground"
-    : timeRemaining > 60
-    ? "text-green-400"
-    : timeRemaining > 20
-    ? "text-yellow-400"
-    : "text-red-400 animate-pulse";
+  const sortedBoard = [...liveLeaderboard].sort((a: any, b: any) => b.coins - a.coins);
 
   if (authLoading || gameLoading) return null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <div className="bg-card border-b px-6 py-3 flex justify-between items-center">
+      {/* Header */}
+      <div className="bg-card border-b px-6 py-3 flex justify-between items-center shrink-0">
         <div>
           <h2 className="text-lg font-bold">{game?.quizTitle}</h2>
           <p className="text-muted-foreground text-xs">
             Code: <span className="font-mono text-primary font-bold">{game?.code}</span>
             {" · "}Level {game?.skillLuckScale}
+            {" · "}
+            <span className={`font-mono font-bold ${isConnected ? "text-green-400" : "text-red-400"}`}>
+              {isConnected ? "●" : "○"} {isConnected ? "Live" : "Connecting"}
+            </span>
           </p>
         </div>
 
@@ -225,15 +233,84 @@ export default function HostGame() {
         </div>
       </div>
 
-      <div className="flex-1 flex gap-6 p-6 overflow-hidden">
-        {/* Center: Status */}
-        <div className="flex-1 flex flex-col bg-card rounded-2xl border p-8 shadow-xl">
+      {/* Body: leaderboard LEFT + center RIGHT */}
+      <div className="flex-1 flex gap-0 overflow-hidden">
+
+        {/* ─── LEFT: Leaderboard ─── */}
+        <div className="w-80 xl:w-96 bg-card border-r flex flex-col shadow-xl shrink-0">
+          <div className="px-5 pt-5 pb-3 border-b">
+            <h3 className="text-base font-black flex items-center gap-2 uppercase tracking-wide">
+              <Users className="w-4 h-4 text-primary" /> Leaderboard
+              <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
+                {liveLeaderboard.length} players
+              </span>
+            </h3>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <AnimatePresence>
+              {sortedBoard.map((player: any, idx: number) => (
+                <motion.div
+                  key={player.id}
+                  layout
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${
+                    idx === 0
+                      ? "bg-yellow-500/10 border-yellow-500/40"
+                      : idx === 1
+                      ? "bg-gray-400/10 border-gray-400/20"
+                      : idx === 2
+                      ? "bg-amber-700/10 border-amber-700/20"
+                      : "bg-muted/10 border-border"
+                  }`}
+                >
+                  {/* Rank badge */}
+                  <div
+                    className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-xs shrink-0 ${
+                      idx < 3 ? RANK_STYLES[idx] : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {idx + 1}
+                  </div>
+
+                  {/* Avatar emoji */}
+                  <div className="text-2xl shrink-0 leading-none">{player.avatar ?? "🐱"}</div>
+
+                  {/* Name + stats */}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-sm truncate leading-tight">{player.nickname}</div>
+                    <div className="text-xs text-muted-foreground leading-tight">
+                      {player.correctAnswers ?? 0}/{player.totalAnswers ?? 0} correct
+                    </div>
+                  </div>
+
+                  {/* Coins */}
+                  <div className="flex items-center gap-1 font-black text-sm text-yellow-400 shrink-0 font-mono">
+                    <Coins className="w-3.5 h-3.5" />
+                    {player.coins}
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+
+            {liveLeaderboard.length === 0 && (
+              <div className="text-center text-muted-foreground py-10 text-sm">
+                Waiting for players…
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ─── RIGHT: Center content ─── */}
+        <div className="flex-1 flex flex-col bg-background p-8 overflow-hidden">
           {!gameStarted ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center space-y-4">
                 <Clock className="w-16 h-16 mx-auto text-primary animate-pulse" />
                 <h2 className="text-2xl font-bold text-muted-foreground">Waiting for game to start…</h2>
-                <p className="text-muted-foreground">Game will start once the host sends the signal.</p>
+                <p className="text-muted-foreground">Game will begin once you press Start in the lobby.</p>
               </div>
             </div>
           ) : (
@@ -241,97 +318,69 @@ export default function HostGame() {
               <div className="text-center">
                 <h2 className="text-3xl font-bold mb-2">Game in Progress</h2>
                 <p className="text-muted-foreground text-lg">
-                  Players are answering questions at their own pace
+                  Players are answering at their own pace
                 </p>
               </div>
 
-              {/* Big timer display */}
+              {/* Giant countdown */}
               <div className={`text-center ${timerColor}`}>
-                <div className="text-8xl font-black font-mono tabular-nums drop-shadow-lg">
+                <motion.div
+                  key={timeRemaining !== null ? Math.floor(timeRemaining / 10) : "idle"}
+                  initial={{ scale: 1.05 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="text-8xl xl:text-9xl font-black font-mono tabular-nums drop-shadow-lg leading-none"
+                >
                   {timeRemaining !== null ? formatTime(timeRemaining) : "––:––"}
-                </div>
-                <p className="text-xl text-muted-foreground mt-2 uppercase tracking-widest font-bold">
+                </motion.div>
+                <p className="text-xl text-muted-foreground mt-3 uppercase tracking-widest font-bold">
                   Time Remaining
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-6 text-center w-full max-w-md">
-                <div className="bg-muted/30 rounded-xl p-4 border">
-                  <div className="text-3xl font-black text-primary">{liveLeaderboard.length}</div>
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-5 text-center w-full max-w-lg">
+                <div className="bg-card rounded-2xl p-5 border shadow">
+                  <div className="text-4xl font-black text-primary">{liveLeaderboard.length}</div>
                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold mt-1">Players</div>
                 </div>
-                <div className="bg-muted/30 rounded-xl p-4 border">
-                  <div className="text-3xl font-black text-yellow-400">
-                    {liveLeaderboard.reduce((s, p) => s + (p.totalAnswers || 0), 0)}
+                <div className="bg-card rounded-2xl p-5 border shadow">
+                  <div className="text-4xl font-black text-yellow-400">
+                    {liveLeaderboard.reduce((s: number, p: any) => s + (p.totalAnswers || 0), 0)}
                   </div>
                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold mt-1">Answers</div>
                 </div>
-                <div className="bg-muted/30 rounded-xl p-4 border">
-                  <div className="text-3xl font-black text-green-400">
-                    {liveLeaderboard.reduce((s, p) => s + (p.correctAnswers || 0), 0)}
+                <div className="bg-card rounded-2xl p-5 border shadow">
+                  <div className="text-4xl font-black text-green-400">
+                    {liveLeaderboard.reduce((s: number, p: any) => s + (p.correctAnswers || 0), 0)}
                   </div>
                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold mt-1">Correct</div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
 
-        {/* Leaderboard Sidebar */}
-        <div className="w-80 bg-card rounded-2xl border p-5 flex flex-col shadow-xl">
-          <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <Users className="w-5 h-5 text-primary" /> Leaderboard
-          </h3>
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-            <AnimatePresence>
-              {[...liveLeaderboard]
-                .sort((a: any, b: any) => b.coins - a.coins)
-                .map((player: any, idx: number) => (
-                  <motion.div
-                    key={player.id}
-                    layout
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className={`flex items-center justify-between p-3 rounded-xl border ${
-                      idx === 0
-                        ? "bg-yellow-500/10 border-yellow-500/30"
-                        : "bg-muted/20 border-border"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white shrink-0 ${
-                          idx === 0
-                            ? "bg-yellow-500"
-                            : idx === 1
-                            ? "bg-gray-400"
-                            : idx === 2
-                            ? "bg-amber-700"
-                            : "bg-muted-foreground"
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-bold truncate text-sm max-w-[110px]">{player.nickname}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {player.correctAnswers || 0}/{player.totalAnswers || 0} correct
+              {/* Top 3 podium preview */}
+              {sortedBoard.length >= 2 && (
+                <div className="w-full max-w-lg">
+                  <p className="text-xs text-center text-muted-foreground uppercase tracking-widest font-bold mb-3">Top 3</p>
+                  <div className="flex gap-3 justify-center">
+                    {sortedBoard.slice(0, 3).map((p: any, idx: number) => (
+                      <div key={p.id} className={`flex flex-col items-center gap-1 px-4 py-3 rounded-2xl border flex-1 max-w-[120px] ${
+                        idx === 0 ? "bg-yellow-500/10 border-yellow-500/40" :
+                        idx === 1 ? "bg-gray-400/10 border-gray-400/20" :
+                        "bg-amber-700/10 border-amber-700/20"
+                      }`}>
+                        <div className="text-3xl">{p.avatar ?? "🐱"}</div>
+                        <div className="font-bold text-xs truncate w-full text-center max-w-[90px]">{p.nickname}</div>
+                        <div className="flex items-center gap-1 text-xs font-black text-yellow-400">
+                          <Coins className="w-3 h-3" />{p.coins}
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1 font-bold text-primary font-mono shrink-0">
-                      <Coins className="w-3.5 h-3.5 text-yellow-400" />
-                      {player.coins}
-                    </div>
-                  </motion.div>
-                ))}
-            </AnimatePresence>
-            {liveLeaderboard.length === 0 && (
-              <div className="text-center text-muted-foreground py-8 text-sm">
-                Waiting for players…
-              </div>
-            )}
-          </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

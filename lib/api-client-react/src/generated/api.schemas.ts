@@ -160,6 +160,7 @@ export interface Player {
   totalAnswers: number;
   isKicked: boolean;
   avatarColor: string;
+  avatar: string;
   joinedAt: string;
 }
 
@@ -179,6 +180,7 @@ export interface CreateGameBody {
 
 export interface JoinGameBody {
   nickname: string;
+  avatar?: string;
 }
 
 export interface UpdatePlayerBody {

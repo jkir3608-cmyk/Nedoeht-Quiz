@@ -70,6 +70,7 @@ async function sendLeaderboardToHost(gameId: number) {
         correctAnswers: p.correctAnswers,
         totalAnswers: p.totalAnswers,
         avatarColor: p.avatarColor,
+        avatar: p.avatar,
       })),
   });
 }
@@ -121,6 +122,7 @@ async function endGame(gameId: number) {
       correctAnswers: p.correctAnswers,
       totalAnswers: p.totalAnswers,
       avatarColor: p.avatarColor,
+      avatar: p.avatar,
     }));
 
   broadcast(gameId, { type: "game-ended", players: leaderboard });

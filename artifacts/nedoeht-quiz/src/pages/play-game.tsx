@@ -233,6 +233,7 @@ export default function PlayGame() {
         startWrongCountdown();
       }
     } else if (msg.type === "show-chests") {
+      if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
       setPhase("chests");
       setChestsOpened(false);
       setOpenedChestIdx(null);
