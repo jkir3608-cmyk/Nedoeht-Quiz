@@ -572,10 +572,11 @@ export function setupWebSocket(wss: WebSocketServer) {
                 gameId,
                 skillLuckScale: game.skillLuckScale,
               });
-              // Send show-chests after 2s (after the CORRECT! flash finishes)
+              // Short delay so the CORRECT! flash is visible, then show chests.
+              // Kept short (800ms) so there's no race with any frontend timers.
               setTimeout(() => {
                 ws.send(JSON.stringify({ type: "show-chests" }));
-              }, 2000);
+              }, 800);
             }
 
             await sendLeaderboardToHost(gameId);

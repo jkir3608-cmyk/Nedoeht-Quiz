@@ -239,9 +239,13 @@ export default function PlayGame() {
       setCoins(r.newTotal);
       if (r.correct) {
         setPhase("result-correct");
-        autoAdvanceRef.current = setTimeout(() => {
-          requestNextQuestion();
-        }, 2500);
+        // Only auto-advance if NO chests are coming — if chests are coming,
+        // wait for show-chests message instead (avoids race condition).
+        if (!r.showChests) {
+          autoAdvanceRef.current = setTimeout(() => {
+            requestNextQuestion();
+          }, 2500);
+        }
       } else {
         setPhase("result-wrong");
         startWrongCountdown();
