@@ -392,7 +392,7 @@ export default function PlayGame() {
             animate={{ scale: 1 }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border font-bold font-mono text-sm ${
               coinLabel
-                ? "bg-red-500/20 border-red-500/40 text-red-200"
+                ? "bg-purple-500/20 border-purple-500/40 text-purple-200"
                 : "bg-black/30 border-border"
             }`}
           >
@@ -425,17 +425,16 @@ export default function PlayGame() {
             exit={{ opacity: 0, y: -80 }}
             className="fixed top-0 inset-x-0 z-50 pointer-events-none flex justify-center"
           >
-            <div className="mt-4 mx-4 bg-red-700 text-white rounded-2xl shadow-2xl border-2 border-red-500 px-6 py-4 flex items-center gap-4 max-w-sm">
+            <div className="mt-4 mx-4 bg-purple-600 text-white rounded-2xl shadow-2xl border-2 border-purple-400 px-6 py-4 flex items-center gap-4 max-w-sm">
               <div className="text-3xl">🔄</div>
               <div>
                 <p className="font-black text-base leading-tight">Coin Swap!</p>
-                <p className="text-sm text-red-100">
+                <p className="text-sm text-purple-100">
                   <strong>{swapNotification.swappedWith}</strong> swapped coins with you!
                 </p>
-                <p className="text-sm text-red-100">
+                <p className="text-sm text-purple-100">
                   {swapNotification.yourOldCoins} → <strong>{swapNotification.yourNewCoins}</strong> coins
                 </p>
-
               </div>
             </div>
           </motion.div>
@@ -589,7 +588,7 @@ export default function PlayGame() {
                                 onChange={(e) => setField(p.id, "pinnedRank", e.target.value)}
                               />
                               {p.pinnedRank != null && !("pinnedRank" in f) && (
-                                <p className="text-xs text-teal-400">Currently pinned to rank {p.pinnedRank}. Enter a number to change or leave blank + save to unpin.</p>
+                                <p className="text-xs text-blue-400">Currently pinned to rank {p.pinnedRank}. Enter a number to change or leave blank + save to unpin.</p>
                               )}
                             </div>
 
@@ -947,9 +946,9 @@ export default function PlayGame() {
                 {chestResult.swapInfo && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-                    className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 mt-3"
+                    className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mt-3"
                   >
-                    <p className="text-red-300 font-bold text-base">
+                    <p className="text-purple-300 font-bold text-base">
                       🔄 Coin swap with <strong className="text-white">{chestResult.swapInfo.withNickname}</strong>!
                     </p>
                     <p className="text-sm text-muted-foreground mt-1">

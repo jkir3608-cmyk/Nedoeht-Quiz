@@ -231,7 +231,7 @@ export default function Quizzes() {
           <div className="flex items-center justify-between mb-5">
             <p className="text-sm text-muted-foreground">
               {adminUnlocked ? (
-                <span className="flex items-center gap-1.5 text-teal-400 font-medium">
+                <span className="flex items-center gap-1.5 text-violet-400 font-medium">
                   <ShieldCheck className="w-4 h-4" /> Admin view active
                 </span>
               ) : (
@@ -266,9 +266,9 @@ export default function Quizzes() {
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
-                className="mb-6 p-4 border border-red-500/40 rounded-xl bg-red-500/5 flex flex-col gap-3"
+                className="mb-6 p-4 border border-violet-500/40 rounded-xl bg-violet-500/5 flex flex-col gap-3"
               >
-                <p className="text-sm font-semibold text-red-300 flex items-center gap-1.5">
+                <p className="text-sm font-semibold text-violet-300 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4" /> Discover Admin Login
                 </p>
                 <div className="flex gap-2">
@@ -319,7 +319,7 @@ export default function Quizzes() {
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1 text-xs text-muted-foreground flex-shrink-0">
-                      <span className="text-teal-400 font-mono">
+                      <span className="text-violet-400 font-mono">
                         Real: {quiz.realPlayCount} plays
                       </span>
                       <span className="text-emerald-400 font-mono">
