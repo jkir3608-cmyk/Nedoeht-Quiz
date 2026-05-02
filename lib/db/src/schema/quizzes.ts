@@ -17,6 +17,7 @@ export const quizzesTable = pgTable("quizzes", {
   coverColor: text("cover_color").notNull().default("#7C3AED"),
   isPublic: boolean("is_public").notNull().default(false),
   playCount: integer("play_count").notNull().default(0),
+  playCountOffset: integer("play_count_offset").notNull().default(0),
   createdById: integer("created_by_id")
     .notNull()
     .references(() => usersTable.id, { onDelete: "cascade" }),
