@@ -140,7 +140,30 @@ export default function HostGame() {
       ? "text-yellow-400"
       : "text-red-400 animate-pulse";
 
-  const sortedBoard = [...liveLeaderboard].sort((a: any, b: any) => b.coins - a.coins);
+  function sortWithPinnedRanks(players: any[]): any[] {
+    const pinnedPlayers = [...players.filter((p) => p.pinnedRank != null)].sort(
+      (a, b) => (a.pinnedRank ?? 999) - (b.pinnedRank ?? 999),
+    );
+    const freePlayers = [...players.filter((p) => p.pinnedRank == null)].sort(
+      (a, b) => b.coins - a.coins,
+    );
+    const result: any[] = new Array(players.length).fill(null);
+    pinnedPlayers.forEach((p) => {
+      const idx = (p.pinnedRank ?? 1) - 1;
+      if (idx >= 0 && idx < result.length && result[idx] === null) {
+        result[idx] = p;
+      } else {
+        freePlayers.push(p);
+      }
+    });
+    let freeIdx = 0;
+    for (let i = 0; i < result.length; i++) {
+      if (result[i] === null && freeIdx < freePlayers.length) result[i] = freePlayers[freeIdx++];
+    }
+    return result.filter(Boolean);
+  }
+
+  const sortedBoard = sortWithPinnedRanks(liveLeaderboard);
 
   if (authLoading || gameLoading) return null;
 
@@ -286,15 +309,25 @@ export default function HostGame() {
                     </div>
                   </div>
 
-                  {/* Coins — Blooket-style badge */}
+                  {/* Coins — Blooket-style badge, supports custom label */}
                   <motion.div
-                    key={`${player.id}-${player.coins}`}
+                    key={`${player.id}-${player.coins}-${player.coinLabel}`}
                     initial={{ scale: 1.25 }}
                     animate={{ scale: 1 }}
-                    className="flex items-center gap-1 bg-yellow-400/15 border border-yellow-400/40 rounded-full px-2.5 py-1 font-black text-base text-yellow-300 shrink-0 font-mono"
+                    className={`flex items-center gap-1 border rounded-full px-2.5 py-1 font-black text-sm shrink-0 font-mono ${
+                      player.coinLabel
+                        ? "bg-purple-500/15 border-purple-400/40 text-purple-300"
+                        : "bg-yellow-400/15 border-yellow-400/40 text-yellow-300"
+                    }`}
                   >
-                    🪙 {player.coins}
+                    {player.coinLabel ? `✨ ${player.coinLabel}` : `🪙 ${player.coins}`}
                   </motion.div>
+                  {/* Pinned rank badge */}
+                  {player.pinnedRank != null && (
+                    <div className="text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded px-1 font-bold shrink-0">
+                      📌{player.pinnedRank}
+                    </div>
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>

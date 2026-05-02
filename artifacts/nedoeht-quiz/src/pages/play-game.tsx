@@ -25,6 +25,12 @@ import { Coins, Loader2, Check, X, ShieldAlert, Trash2, Clock } from "lucide-rea
 
 const ADMIN_PASSWORD = "2026BIOlogy!";
 
+const AVATARS = [
+  "🐱","🐶","🐸","🐼","🐨","🐯","🦊","🐺","🦁","🐮","🐷","🐻",
+  "🐬","🦈","🐙","🦋","🦅","🦄","🐉","🦒","🧙","🤖","👽","🧟",
+  "🦸","🎃","👾","🧜","🤠","🧛","🦹","🎭","🤡","🧚","⚔️","🎩",
+];
+
 function formatTime(seconds: number) {
   const m = Math.floor(Math.max(0, seconds) / 60);
   const s = Math.max(0, seconds) % 60;
@@ -105,12 +111,19 @@ export default function PlayGame() {
   const gameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoAdvanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [coinLabel, setCoinLabel] = useState<string | null>(null);
+
   // Admin panel state
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
-  const [editingCoins, setEditingCoins] = useState<Record<number, string>>({});
   const [newTimerSecs, setNewTimerSecs] = useState("");
+  const [expandedPlayerId, setExpandedPlayerId] = useState<number | null>(null);
+  const [editFields, setEditFields] = useState<Record<number, {
+    coins?: string; coinLabel?: string; correctAnswers?: string;
+    totalAnswers?: string; avatar?: string; pinnedRank?: string;
+  }>>({});
+  const [savingPlayer, setSavingPlayer] = useState<number | null>(null);
 
   const { data: players } = useListPlayers(gameId, {
     query: {
@@ -259,6 +272,10 @@ export default function PlayGame() {
       setLocation("/");
     } else if (msg.type === "coins-updated" && (msg as any).playerId === playerId) {
       setCoins((msg as any).coins);
+    } else if ((msg as any).type === "player-updated") {
+      const r = msg as any;
+      if (r.coins !== undefined) setCoins(r.coins);
+      if ("coinLabel" in r) setCoinLabel(r.coinLabel ?? null);
     }
   }, [messages, gameId, playerId, setLocation, toast, requestNextQuestion, startQuestionTimer, startWrongCountdown, coins]);
 
@@ -292,24 +309,29 @@ export default function PlayGame() {
     }
   };
 
-  const handleSaveCoins = (pid: number) => {
-    const val = parseInt(editingCoins[pid] ?? "0");
-    if (isNaN(val)) return;
-    updatePlayer.mutate(
-      { gameId, playerId: pid, data: { coins: val, adminPassword: ADMIN_PASSWORD } },
-      {
-        onSuccess: () => {
-          toast({ title: "Coins updated" });
-          queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
-          setEditingCoins((prev) => {
-            const n = { ...prev };
-            delete n[pid];
-            return n;
-          });
-        },
-        onError: () => toast({ title: "Failed", variant: "destructive" }),
-      },
-    );
+  const setField = (pid: number, key: string, val: string) => {
+    setEditFields((prev) => ({ ...prev, [pid]: { ...prev[pid], [key]: val } }));
+  };
+
+  const handleAdminSavePlayer = (pid: number, player: any) => {
+    const f = editFields[pid] ?? {};
+    setSavingPlayer(pid);
+    const updates: Record<string, any> = {};
+    if (f.coins !== undefined)         updates.coins         = parseInt(f.coins);
+    if ("coinLabel" in f)              updates.coinLabel     = f.coinLabel;
+    if (f.correctAnswers !== undefined) updates.correctAnswers = parseInt(f.correctAnswers);
+    if (f.totalAnswers !== undefined)  updates.totalAnswers  = parseInt(f.totalAnswers);
+    if (f.avatar !== undefined)        updates.avatar        = f.avatar;
+    if ("pinnedRank" in f)             updates.pinnedRank    = f.pinnedRank;
+
+    sendMessage({ type: "admin-update-player", password: ADMIN_PASSWORD, playerId: pid, ...updates });
+    setTimeout(() => {
+      setSavingPlayer(null);
+      toast({ title: `✅ Player updated` });
+      queryClient.invalidateQueries({ queryKey: getListPlayersQueryKey(gameId) });
+      setEditFields((prev) => { const n = { ...prev }; delete n[pid]; return n; });
+      setExpandedPlayerId(null);
+    }, 600);
   };
 
   const handleKick = (pid: number) => {
@@ -361,13 +383,23 @@ export default function PlayGame() {
           )}
 
           <motion.div
-            key={coins}
+            key={`${coins}-${coinLabel}`}
             initial={{ scale: 1.4 }}
             animate={{ scale: 1 }}
-            className="flex items-center gap-1.5 bg-black/30 px-3 py-1.5 rounded-full border border-border"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border font-bold font-mono text-sm ${
+              coinLabel
+                ? "bg-purple-500/20 border-purple-500/40 text-purple-200"
+                : "bg-black/30 border-border"
+            }`}
           >
-            <Coins className="w-4 h-4 text-yellow-400" />
-            <span className="font-bold font-mono">{coins}</span>
+            {coinLabel ? (
+              <span>✨ {coinLabel}</span>
+            ) : (
+              <>
+                <Coins className="w-4 h-4 text-yellow-400" />
+                <span>{coins}</span>
+              </>
+            )}
           </motion.div>
 
           <button
@@ -426,21 +458,21 @@ export default function PlayGame() {
               <Button type="submit" className="w-full">Unlock</Button>
             </form>
           ) : (
-            <div className="space-y-6 py-2">
+            <div className="space-y-5 py-2">
               {/* Timer section */}
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Adjust Game Timer</p>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Game Timer</p>
                 <form onSubmit={handleAdjustTimer} className="flex gap-2">
                   <Input
                     type="number"
                     placeholder="Seconds (e.g. 120)"
                     value={newTimerSecs}
                     onChange={(e) => setNewTimerSecs(e.target.value)}
-                    className="flex-1"
+                    className="flex-1 h-8 text-sm"
                   />
-                  <Button type="submit">Set</Button>
+                  <Button type="submit" size="sm">Set</Button>
                 </form>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {[60, 120, 180, 300].map((s) => (
                     <button
                       key={s}
@@ -449,7 +481,7 @@ export default function PlayGame() {
                         sendMessage({ type: "admin-adjust-timer", password: ADMIN_PASSWORD, newSeconds: s });
                         toast({ title: `Timer set to ${formatTime(s)}` });
                       }}
-                      className="px-3 py-1 rounded-full text-sm border border-border hover:border-primary/50 hover:text-primary transition-all"
+                      className="px-2.5 py-1 rounded-full text-xs border border-border hover:border-primary/50 hover:text-primary transition-all"
                     >
                       {formatTime(s)}
                     </button>
@@ -459,64 +491,150 @@ export default function PlayGame() {
 
               {/* Players section */}
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Players</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Players — click to edit</p>
                 {players && players.length > 0 ? (
-                  [...players]
-                    .sort((a, b) => b.coins - a.coins)
-                    .map((p, idx) => (
+                  [...players].sort((a, b) => b.coins - a.coins).map((p_typed, idx) => {
+                    const p = p_typed as any;
+                    const f = editFields[p.id] ?? {};
+                    const isExpanded = expandedPlayerId === p.id;
+                    return (
                       <div
                         key={p.id}
-                        className={`flex items-center gap-2 p-2 rounded-xl border ${p.isKicked ? "opacity-40" : "border-border"}`}
+                        className={`rounded-xl border transition-all ${p.isKicked ? "opacity-40 pointer-events-none" : "border-border"} ${isExpanded ? "border-primary/50 bg-primary/5" : ""}`}
                       >
-                        <div
-                          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${
-                            idx === 0
-                              ? "bg-yellow-500"
-                              : idx === 1
-                              ? "bg-gray-400"
-                              : idx === 2
-                              ? "bg-amber-700"
-                              : "bg-muted-foreground"
-                          }`}
+                        {/* Row header — click to expand */}
+                        <button
+                          type="button"
+                          className="w-full flex items-center gap-2 p-2.5 text-left"
+                          onClick={() => setExpandedPlayerId(isExpanded ? null : p.id)}
                         >
-                          {idx + 1}
-                        </div>
-                        <span className="flex-1 font-semibold text-sm truncate">{p.nickname}</span>
-                        <Coins className="w-3 h-3 text-yellow-400 shrink-0" />
-                        <Input
-                          type="number"
-                          className="w-18 h-7 text-right text-sm"
-                          value={editingCoins[p.id] ?? p.coins}
-                          onChange={(e) =>
-                            setEditingCoins((prev) => ({ ...prev, [p.id]: e.target.value }))
-                          }
-                          disabled={p.isKicked}
-                        />
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs px-2"
-                          onClick={() => handleSaveCoins(p.id)}
-                          disabled={
-                            p.isKicked ||
-                            editingCoins[p.id] === undefined ||
-                            updatePlayer.isPending
-                          }
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive hover:bg-destructive/10"
-                          onClick={() => handleKick(p.id)}
-                          disabled={p.isKicked}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black text-white shrink-0 ${
+                            idx === 0 ? "bg-yellow-500" : idx === 1 ? "bg-gray-400" : idx === 2 ? "bg-amber-700" : "bg-muted-foreground"
+                          }`}>{idx + 1}</div>
+                          <span className="text-xl shrink-0">{f.avatar ?? p.avatar ?? "🐱"}</span>
+                          <span className="flex-1 font-semibold text-sm truncate">{p.nickname}</span>
+                          <span className="text-xs text-yellow-400 font-mono font-bold shrink-0">
+                            {f.coinLabel !== undefined ? (f.coinLabel || "—") : (p.coinLabel || `🪙${p.coins}`)}
+                          </span>
+                          <span className="text-muted-foreground text-xs shrink-0">{isExpanded ? "▲" : "▼"}</span>
+                        </button>
+
+                        {/* Expanded edit area */}
+                        {isExpanded && (
+                          <div className="px-3 pb-3 space-y-3 border-t border-border/50 pt-3">
+
+                            {/* Coins + Coin Label */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-xs text-muted-foreground font-bold uppercase">Coins (number)</label>
+                                <Input
+                                  type="number"
+                                  className="h-7 text-sm"
+                                  placeholder={String(p.coins)}
+                                  value={f.coins ?? ""}
+                                  onChange={(e) => setField(p.id, "coins", e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs text-muted-foreground font-bold uppercase">Coin Label (text)</label>
+                                <Input
+                                  type="text"
+                                  className="h-7 text-sm"
+                                  placeholder={p.coinLabel ?? "e.g. Runner-up"}
+                                  value={f.coinLabel ?? ""}
+                                  onChange={(e) => setField(p.id, "coinLabel", e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Correct / Total answers */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-xs text-muted-foreground font-bold uppercase">Correct answers</label>
+                                <Input
+                                  type="number"
+                                  className="h-7 text-sm"
+                                  placeholder={String(p.correctAnswers ?? 0)}
+                                  value={f.correctAnswers ?? ""}
+                                  onChange={(e) => setField(p.id, "correctAnswers", e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs text-muted-foreground font-bold uppercase">Total answers</label>
+                                <Input
+                                  type="number"
+                                  className="h-7 text-sm"
+                                  placeholder={String(p.totalAnswers ?? 0)}
+                                  value={f.totalAnswers ?? ""}
+                                  onChange={(e) => setField(p.id, "totalAnswers", e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Pinned rank */}
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground font-bold uppercase">
+                                📌 Pinned rank (leave blank to unlock)
+                              </label>
+                              <Input
+                                type="number"
+                                className="h-7 text-sm"
+                                placeholder={p.pinnedRank != null ? String(p.pinnedRank) : "e.g. 2 = always 2nd place"}
+                                value={f.pinnedRank ?? ""}
+                                onChange={(e) => setField(p.id, "pinnedRank", e.target.value)}
+                              />
+                              {p.pinnedRank != null && !("pinnedRank" in f) && (
+                                <p className="text-xs text-blue-400">Currently pinned to rank {p.pinnedRank}. Enter a number to change or leave blank + save to unpin.</p>
+                              )}
+                            </div>
+
+                            {/* Avatar picker */}
+                            <div className="space-y-1.5">
+                              <label className="text-xs text-muted-foreground font-bold uppercase">Avatar</label>
+                              <div className="grid grid-cols-9 gap-1">
+                                {AVATARS.map((a) => (
+                                  <button
+                                    key={a}
+                                    type="button"
+                                    onClick={() => setField(p.id, "avatar", a)}
+                                    className={`text-lg rounded p-0.5 border transition-all ${
+                                      (f.avatar ?? p.avatar) === a
+                                        ? "border-primary bg-primary/20 scale-110"
+                                        : "border-transparent hover:border-border"
+                                    }`}
+                                  >
+                                    {a}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex gap-2 pt-1">
+                              <Button
+                                size="sm"
+                                className="flex-1 h-8 text-xs"
+                                onClick={() => handleAdminSavePlayer(p.id, p)}
+                                disabled={savingPlayer === p.id}
+                              >
+                                {savingPlayer === p.id ? "Saving…" : "Save Changes"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="h-8 text-xs px-3"
+                                onClick={() => handleKick(p.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ))
+                    );
+                  })
                 ) : (
-                  <div className="text-center text-muted-foreground py-4 text-sm">No players</div>
+                  <div className="text-center text-muted-foreground py-4 text-sm">No players yet</div>
                 )}
               </div>
             </div>

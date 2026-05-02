@@ -23,6 +23,8 @@ export const playersTable = pgTable("players", {
   isKicked: boolean("is_kicked").notNull().default(false),
   avatarColor: text("avatar_color").notNull().default("#7C3AED"),
   avatar: text("avatar").notNull().default("🐱"),
+  coinLabel: text("coin_label"),
+  pinnedRank: integer("pinned_rank"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 

@@ -30,6 +30,7 @@ export type GameMessage =
   | { type: "game-ended"; players: any[] }
   | { type: "player-kicked"; playerId: number }
   | { type: "coins-updated"; playerId: number; coins: number }
+  | { type: "player-updated"; coins?: number; coinLabel?: string | null; avatar?: string }
   | { type: "timer"; remaining: number; endsAt: number }
   | { type: "timer-adjusted"; newSeconds: number }
   | { type: "no-questions" }

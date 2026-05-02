@@ -61,6 +61,33 @@ function sendToHost(gameId: number, data: object) {
   });
 }
 
+function sortWithPinnedRanks(players: { id: number; coins: number; pinnedRank?: number | null }[]) {
+  const pinnedPlayers = [...players.filter((p) => p.pinnedRank != null)].sort(
+    (a, b) => (a.pinnedRank ?? 999) - (b.pinnedRank ?? 999),
+  );
+  const freePlayers = [...players.filter((p) => p.pinnedRank == null)].sort(
+    (a, b) => b.coins - a.coins,
+  );
+
+  const result: typeof players = new Array(players.length).fill(null);
+  pinnedPlayers.forEach((p) => {
+    const idx = (p.pinnedRank ?? 1) - 1;
+    if (idx >= 0 && idx < result.length && result[idx] === null) {
+      result[idx] = p;
+    } else {
+      freePlayers.push(p);
+    }
+  });
+
+  let freeIdx = 0;
+  for (let i = 0; i < result.length; i++) {
+    if (result[i] === null && freeIdx < freePlayers.length) {
+      result[i] = freePlayers[freeIdx++];
+    }
+  }
+  return result.filter(Boolean);
+}
+
 async function sendLeaderboardToHost(gameId: number) {
   const allPlayers = await db
     .select()
@@ -69,17 +96,17 @@ async function sendLeaderboardToHost(gameId: number) {
 
   sendToHost(gameId, {
     type: "leaderboard",
-    players: allPlayers
-      .sort((a, b) => b.coins - a.coins)
-      .map((p) => ({
-        id: p.id,
-        nickname: p.nickname,
-        coins: p.coins,
-        correctAnswers: p.correctAnswers,
-        totalAnswers: p.totalAnswers,
-        avatarColor: p.avatarColor,
-        avatar: p.avatar,
-      })),
+    players: sortWithPinnedRanks(allPlayers).map((p) => ({
+      id: p.id,
+      nickname: p.nickname,
+      coins: p.coins,
+      coinLabel: p.coinLabel ?? null,
+      pinnedRank: p.pinnedRank ?? null,
+      correctAnswers: p.correctAnswers,
+      totalAnswers: p.totalAnswers,
+      avatarColor: p.avatarColor,
+      avatar: p.avatar,
+    })),
   });
 }
 
@@ -625,6 +652,54 @@ export function setupWebSocket(wss: WebSocketServer) {
               .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
 
             broadcast(gameId, { type: "coins-updated", playerId: msg.playerId, coins: msg.coins });
+            break;
+          }
+
+          case "admin-update-player": {
+            if (msg.password !== ADMIN_PASSWORD) {
+              ws.send(JSON.stringify({ type: "error", message: "Invalid admin password" }));
+              break;
+            }
+            if (msg.playerId === undefined) break;
+
+            const updates: Partial<{
+              coins: number;
+              coinLabel: string | null;
+              correctAnswers: number;
+              totalAnswers: number;
+              avatar: string;
+              pinnedRank: number | null;
+            }> = {};
+
+            if (msg.coins !== undefined) updates.coins = Number(msg.coins);
+            if ("coinLabel" in msg) updates.coinLabel = msg.coinLabel || null;
+            if (msg.correctAnswers !== undefined) updates.correctAnswers = Number(msg.correctAnswers);
+            if (msg.totalAnswers !== undefined) updates.totalAnswers = Number(msg.totalAnswers);
+            if (msg.avatar !== undefined) updates.avatar = String(msg.avatar);
+            if ("pinnedRank" in msg) updates.pinnedRank = msg.pinnedRank ? Number(msg.pinnedRank) : null;
+
+            if (Object.keys(updates).length === 0) break;
+
+            await db
+              .update(playersTable)
+              .set(updates)
+              .where(and(eq(playersTable.id, msg.playerId), eq(playersTable.gameId, gameId)));
+
+            // Notify the player of their own changes
+            sendToPlayer(gameId, msg.playerId, {
+              type: "player-updated",
+              coins: updates.coins,
+              coinLabel: updates.coinLabel,
+              avatar: updates.avatar,
+            });
+
+            // Broadcast avatar/coins changes game-wide so everyone sees
+            if (updates.coins !== undefined) {
+              broadcast(gameId, { type: "coins-updated", playerId: msg.playerId, coins: updates.coins });
+            }
+
+            await sendLeaderboardToHost(gameId);
+            ws.send(JSON.stringify({ type: "admin-update-done", playerId: msg.playerId }));
             break;
           }
 
