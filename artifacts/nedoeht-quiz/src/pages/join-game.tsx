@@ -130,8 +130,8 @@ export default function JoinGame() {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/20 via-background to-background z-0" />
 
       <div className="w-full max-w-sm z-10">
-        <h1 className="text-4xl md:text-5xl font-black text-center tracking-tight text-primary drop-shadow-md mb-12">
-          Nedoeht-Quiz
+        <h1 className="text-4xl md:text-5xl font-black text-center tracking-tight drop-shadow-md mb-12">
+          <span className="text-primary">Quizzy</span><span className="text-foreground/80">Blast</span>
         </h1>
 
         <AnimatePresence mode="wait">

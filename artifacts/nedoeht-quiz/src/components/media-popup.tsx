@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export interface PopupData {
@@ -24,14 +24,19 @@ const SIZE_CLASS: Record<PopupData["size"], string> = {
 
 function SinglePopup({ popup, onAutoDismiss }: { popup: PopupData; onAutoDismiss?: (id: string) => void }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [countdown, setCountdown] = useState(popup.duration);
 
   useEffect(() => {
-    if (popup.duration > 0) {
-      timerRef.current = setTimeout(() => {
-        onAutoDismiss?.(popup.id);
-      }, popup.duration * 1000);
-    }
+    if (popup.duration <= 0) return;
+    setCountdown(popup.duration);
+    const countInterval = setInterval(() => {
+      setCountdown(prev => Math.max(0, prev - 1));
+    }, 1000);
+    timerRef.current = setTimeout(() => {
+      onAutoDismiss?.(popup.id);
+    }, popup.duration * 1000);
     return () => {
+      clearInterval(countInterval);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [popup.id, popup.duration, onAutoDismiss]);
@@ -51,7 +56,7 @@ function SinglePopup({ popup, onAutoDismiss }: { popup: PopupData; onAutoDismiss
         <img
           src={popup.mediaSrc}
           alt="Admin popup"
-          className={`block ${isFullscreen ? "w-full h-full object-contain" : "w-full max-h-[70vh] object-contain"}`}
+          className={`block ${isFullscreen ? "w-full h-full object-contain" : "w-full max-h-[75vh] object-contain"}`}
           draggable={false}
         />
       ) : (
@@ -59,15 +64,16 @@ function SinglePopup({ popup, onAutoDismiss }: { popup: PopupData; onAutoDismiss
           src={popup.mediaSrc}
           autoPlay
           loop
-          muted={false}
+          playsInline
           controls
-          className={`block ${isFullscreen ? "w-full h-full object-contain" : "w-full max-h-[70vh]"}`}
+          className={`block ${isFullscreen ? "w-full h-full object-contain" : "w-full max-h-[75vh]"}`}
         />
       )}
 
       {popup.duration > 0 && (
-        <div className="absolute bottom-2 right-2 text-xs text-white/50 font-mono bg-black/40 px-2 py-0.5 rounded-full">
-          auto-closes in {popup.duration}s
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 text-white/80 text-xs font-mono px-2.5 py-1 rounded-full backdrop-blur-sm">
+          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+          {countdown}s
         </div>
       )}
     </motion.div>
@@ -87,7 +93,7 @@ export function MediaPopupOverlay({ popups, onAutoDismiss }: MediaPopupOverlayPr
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className={`fixed inset-0 z-[9999] flex items-center justify-center ${isFullscreen ? "p-0" : "p-4"} bg-black/70 backdrop-blur-sm`}
+        className={`fixed inset-0 z-[9999] flex items-center justify-center ${isFullscreen ? "p-0" : "p-6 sm:p-10"} bg-black/75 backdrop-blur-sm`}
       >
         <SinglePopup popup={latest} onAutoDismiss={onAutoDismiss} />
       </motion.div>
