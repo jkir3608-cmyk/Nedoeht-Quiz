@@ -102,6 +102,7 @@ export default function PlayGame() {
   const [questionTimer, setQuestionTimer] = useState(0);
   const [questionTimerMax, setQuestionTimerMax] = useState(30);
   const [wrongCountdown, setWrongCountdown] = useState(0);
+  const minExplanationTimeRef = useRef(7);
   const [gameTimeRemaining, setGameTimeRemaining] = useState<number | null>(null);
   const [endsAt, setEndsAt] = useState<number | null>(null);
   const [chestsOpened, setChestsOpened] = useState(false);
@@ -180,8 +181,9 @@ export default function PlayGame() {
   }, [questionTimer, phase, currentQuestion, sendMessage, playerId]);
 
   const startWrongCountdown = useCallback(() => {
+    const secs = minExplanationTimeRef.current;
     if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
-    setWrongCountdown(5);
+    setWrongCountdown(secs);
     wrongCountdownRef.current = setInterval(() => {
       setWrongCountdown((prev) => {
         if (prev <= 1) {
@@ -214,6 +216,7 @@ export default function PlayGame() {
     if (msg.type === "game-started") {
       setEndsAt((msg as any).endsAt);
       setGameTimeRemaining((msg as any).remainingSeconds);
+      if ((msg as any).minExplanationTime) minExplanationTimeRef.current = (msg as any).minExplanationTime;
       requestNextQuestion();
     } else if ((msg as any).type === "timer") {
       setGameTimeRemaining((msg as any).remaining);
@@ -249,6 +252,7 @@ export default function PlayGame() {
           }, 2500);
         }
       } else {
+        if (r.minExplanationTime) minExplanationTimeRef.current = r.minExplanationTime;
         setPhase("result-wrong");
         startWrongCountdown();
       }

@@ -21,9 +21,10 @@ export default function HostSetup() {
   
   const createGame = useCreateGame();
   const [skillLuckScale, setSkillLuckScale] = useState(3);
+  const [minExplanationTime, setMinExplanationTime] = useState(7);
   
   const handleCreateGame = () => {
-    createGame.mutate({ data: { quizId, skillLuckScale } }, {
+    createGame.mutate({ data: { quizId, skillLuckScale, minExplanationTime } }, {
       onSuccess: (game) => {
         setLocation(`/host/lobby/${game.id}`);
       }
@@ -95,6 +96,39 @@ export default function HostSetup() {
                   {skillLuckScale === 3 && "Balanced mix. Chests have moderate variance."}
                   {skillLuckScale === 4 && "High variance in rewards. Anyone could win!"}
                   {skillLuckScale === 5 && "Pure chaos. Massive chest multipliers and losses possible."}
+                </div>
+              </div>
+
+              <div className="space-y-4 border-t border-border pt-6">
+                <div className="flex justify-between items-center mb-2">
+                  <div>
+                    <span className="font-bold text-lg">Explanation View Time</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">Minimum seconds players must view the explanation after a wrong answer</p>
+                  </div>
+                  <span className="bg-muted px-3 py-1 rounded-full text-sm font-mono border">{minExplanationTime}s</span>
+                </div>
+
+                <Slider
+                  defaultValue={[minExplanationTime]}
+                  max={20}
+                  min={1}
+                  step={1}
+                  onValueChange={(vals) => setMinExplanationTime(vals[0])}
+                  className="py-4"
+                />
+
+                <div className="flex justify-between text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                  <span>1 second (fast)</span>
+                  <span className="text-primary font-bold">7s standard</span>
+                  <span>20 seconds (slow)</span>
+                </div>
+
+                <div className="p-3 bg-muted/30 rounded-xl border border-border text-center text-sm text-muted-foreground">
+                  {minExplanationTime <= 3 && "⚡ Very quick — students may not have time to read explanations."}
+                  {minExplanationTime >= 4 && minExplanationTime <= 6 && "⏩ Quick — fast-paced games or simple questions."}
+                  {minExplanationTime === 7 && "✅ Standard — enough time to read most explanations."}
+                  {minExplanationTime >= 8 && minExplanationTime <= 12 && "📖 Relaxed — good for detailed explanations."}
+                  {minExplanationTime >= 13 && "🧐 Extended — ideal for complex topics with long explanations."}
                 </div>
               </div>
 

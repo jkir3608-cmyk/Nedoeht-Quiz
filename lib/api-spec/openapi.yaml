@@ -920,6 +920,10 @@ components:
           type: integer
           minimum: 1
           maximum: 5
+        minExplanationTime:
+          type: integer
+          minimum: 1
+          maximum: 20
         playerCount:
           type: integer
         quizTitle:
@@ -934,6 +938,7 @@ components:
         - code
         - status
         - skillLuckScale
+        - minExplanationTime
         - playerCount
         - createdAt
 
@@ -961,6 +966,11 @@ components:
           minimum: 1
           maximum: 5
           default: 3
+        minExplanationTime:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 7
       required:
         - quizId
 

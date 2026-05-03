@@ -157,6 +157,11 @@ export interface Game {
    * @maximum 5
    */
   skillLuckScale: number;
+  /**
+   * @minimum 1
+   * @maximum 20
+   */
+  minExplanationTime: number;
   playerCount: number;
   quizTitle?: string;
   createdAt: string;
@@ -187,6 +192,11 @@ export interface CreateGameBody {
    * @maximum 5
    */
   skillLuckScale?: number;
+  /**
+   * @minimum 1
+   * @maximum 20
+   */
+  minExplanationTime?: number;
 }
 
 export interface JoinGameBody {

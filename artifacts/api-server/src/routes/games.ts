@@ -44,6 +44,7 @@ async function formatGame(game: any) {
     code: game.code,
     status: game.status,
     skillLuckScale: game.skillLuckScale,
+    minExplanationTime: game.minExplanationTime,
     playerCount: Number(playerCount),
     quizTitle: quiz?.title ?? "Unknown Quiz",
     createdAt: game.createdAt.toISOString(),
@@ -58,7 +59,7 @@ router.post("/games", requireAuth, async (req, res) => {
   }
 
   const userId = req.session.userId!;
-  const { quizId, skillLuckScale = 3 } = parsed.data;
+  const { quizId, skillLuckScale = 3, minExplanationTime = 7 } = parsed.data;
 
   const quiz = await db.query.quizzesTable.findFirst({
     where: eq(quizzesTable.id, quizId),
@@ -86,6 +87,7 @@ router.post("/games", requireAuth, async (req, res) => {
       hostId: userId,
       code,
       skillLuckScale,
+      minExplanationTime,
       status: "waiting",
     })
     .returning();

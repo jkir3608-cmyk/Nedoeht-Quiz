@@ -350,6 +350,9 @@ export const AiGenerateExplanationResponse = zod.object({
 export const createGameBodySkillLuckScaleDefault = 3;
 export const createGameBodySkillLuckScaleMax = 5;
 
+export const createGameBodyMinExplanationTimeDefault = 7;
+export const createGameBodyMinExplanationTimeMax = 20;
+
 export const CreateGameBody = zod.object({
   quizId: zod.number(),
   skillLuckScale: zod
@@ -357,6 +360,11 @@ export const CreateGameBody = zod.object({
     .min(1)
     .max(createGameBodySkillLuckScaleMax)
     .default(createGameBodySkillLuckScaleDefault),
+  minExplanationTime: zod
+    .number()
+    .min(1)
+    .max(createGameBodyMinExplanationTimeMax)
+    .default(createGameBodyMinExplanationTimeDefault),
 });
 
 /**
@@ -368,6 +376,8 @@ export const GetGameByCodeParams = zod.object({
 
 export const getGameByCodeResponseSkillLuckScaleMax = 5;
 
+export const getGameByCodeResponseMinExplanationTimeMax = 20;
+
 export const GetGameByCodeResponse = zod.object({
   id: zod.number(),
   quizId: zod.number(),
@@ -378,6 +388,10 @@ export const GetGameByCodeResponse = zod.object({
     .number()
     .min(1)
     .max(getGameByCodeResponseSkillLuckScaleMax),
+  minExplanationTime: zod
+    .number()
+    .min(1)
+    .max(getGameByCodeResponseMinExplanationTimeMax),
   playerCount: zod.number(),
   quizTitle: zod.string().optional(),
   createdAt: zod.coerce.date(),
@@ -392,6 +406,8 @@ export const GetGameParams = zod.object({
 
 export const getGameResponseOneSkillLuckScaleMax = 5;
 
+export const getGameResponseOneMinExplanationTimeMax = 20;
+
 export const GetGameResponse = zod
   .object({
     id: zod.number(),
@@ -403,6 +419,10 @@ export const GetGameResponse = zod
       .number()
       .min(1)
       .max(getGameResponseOneSkillLuckScaleMax),
+    minExplanationTime: zod
+      .number()
+      .min(1)
+      .max(getGameResponseOneMinExplanationTimeMax),
     playerCount: zod.number(),
     quizTitle: zod.string().optional(),
     createdAt: zod.coerce.date(),
@@ -503,6 +523,8 @@ export const StartGameParams = zod.object({
 
 export const startGameResponseSkillLuckScaleMax = 5;
 
+export const startGameResponseMinExplanationTimeMax = 20;
+
 export const StartGameResponse = zod.object({
   id: zod.number(),
   quizId: zod.number(),
@@ -510,6 +532,10 @@ export const StartGameResponse = zod.object({
   code: zod.string(),
   status: zod.enum(["waiting", "playing", "ended"]),
   skillLuckScale: zod.number().min(1).max(startGameResponseSkillLuckScaleMax),
+  minExplanationTime: zod
+    .number()
+    .min(1)
+    .max(startGameResponseMinExplanationTimeMax),
   playerCount: zod.number(),
   quizTitle: zod.string().optional(),
   createdAt: zod.coerce.date(),
@@ -524,6 +550,8 @@ export const EndGameParams = zod.object({
 
 export const endGameResponseSkillLuckScaleMax = 5;
 
+export const endGameResponseMinExplanationTimeMax = 20;
+
 export const EndGameResponse = zod.object({
   id: zod.number(),
   quizId: zod.number(),
@@ -531,6 +559,10 @@ export const EndGameResponse = zod.object({
   code: zod.string(),
   status: zod.enum(["waiting", "playing", "ended"]),
   skillLuckScale: zod.number().min(1).max(endGameResponseSkillLuckScaleMax),
+  minExplanationTime: zod
+    .number()
+    .min(1)
+    .max(endGameResponseMinExplanationTimeMax),
   playerCount: zod.number(),
   quizTitle: zod.string().optional(),
   createdAt: zod.coerce.date(),

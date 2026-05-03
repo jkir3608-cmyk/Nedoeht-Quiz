@@ -473,6 +473,7 @@ export function setupWebSocket(wss: WebSocketServer) {
                 type: "game-started",
                 endsAt: gt?.endsAt ?? Date.now() + 60000,
                 remainingSeconds: gt?.remainingSeconds ?? 60,
+                minExplanationTime: game.minExplanationTime,
               }),
             );
           }
@@ -511,7 +512,8 @@ export function setupWebSocket(wss: WebSocketServer) {
 
             startGameTimer(gameId, duration);
             const gt = gameTimers.get(gameId)!;
-            broadcast(gameId, { type: "game-started", endsAt: gt.endsAt, remainingSeconds: duration });
+            const gameForTimer = await db.query.gamesTable.findFirst({ where: eq(gamesTable.id, gameId) });
+            broadcast(gameId, { type: "game-started", endsAt: gt.endsAt, remainingSeconds: duration, minExplanationTime: gameForTimer?.minExplanationTime ?? 7 });
             break;
           }
 
@@ -601,6 +603,7 @@ export function setupWebSocket(wss: WebSocketServer) {
                 correctAnswer: question.correctAnswer,
                 correctAnswerText: question.options[question.correctAnswer],
                 showChests,
+                minExplanationTime: game.minExplanationTime,
               }),
             );
 
