@@ -72,6 +72,7 @@ export default function PlayGame() {
     | "result-correct"
     | "result-wrong"
     | "chests"
+    | "steal-picker"
     | "chest-opened"
     | "ended";
 
@@ -95,9 +96,10 @@ export default function PlayGame() {
   const [chestResult, setChestResult] = useState<{
     reward: { label: string; coinsChange: number };
     newTotal: number;
-    swapInfo: { withNickname: string; theirOldCoins: number; myOldCoins: number } | null;
+    stealInfo: { fromNickname: string; stolenAmount: number } | null;
   } | null>(null);
-  const [swapNotification, setSwapNotification] = useState<{ swappedWith: string; yourOldCoins: number; yourNewCoins: number } | null>(null);
+  const [stolenNotification, setStolenNotification] = useState<{ byNickname: string; stolenAmount: number; yourOldCoins: number; yourNewCoins: number } | null>(null);
+  const [stealPickerPlayers, setStealPickerPlayers] = useState<Array<{ id: number; nickname: string; coins: number; avatar: string }>>([]);
   const [coins, setCoins] = useState(0);
   const [questionTimer, setQuestionTimer] = useState(0);
   const [questionTimerMax, setQuestionTimerMax] = useState(30);
@@ -146,6 +148,7 @@ export default function PlayGame() {
     setChestResult(null);
     setChestsOpened(false);
     setOpenedChestIdx(null);
+    setStealPickerPlayers([]);
     if (questionTimerRef.current) clearInterval(questionTimerRef.current);
     if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
     if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
@@ -265,16 +268,21 @@ export default function PlayGame() {
       if (wrongCountdownRef.current) clearInterval(wrongCountdownRef.current);
     } else if (msg.type === "chest-result") {
       const r = msg as any;
-      setChestResult({ reward: r.reward, newTotal: r.newTotal, swapInfo: r.swapInfo });
+      setChestResult({ reward: r.reward, newTotal: r.newTotal, stealInfo: r.stealInfo ?? null });
       setCoins(r.newTotal);
       setChestsOpened(true);
+      setStealPickerPlayers([]);
       setPhase("chest-opened");
-      // No auto-advance — player must click Continue
-    } else if ((msg as any).type === "coins-swapped") {
+    } else if ((msg as any).type === "steal-picker") {
       const r = msg as any;
-      setSwapNotification({ swappedWith: r.swappedWith, yourOldCoins: r.yourOldCoins, yourNewCoins: r.yourNewCoins });
+      setStealPickerPlayers(r.players);
+      setChestsOpened(true);
+      setPhase("steal-picker");
+    } else if ((msg as any).type === "stolen-from") {
+      const r = msg as any;
+      setStolenNotification({ byNickname: r.byNickname, stolenAmount: r.stolenAmount, yourOldCoins: r.yourOldCoins, yourNewCoins: r.yourNewCoins });
       setCoins(r.yourNewCoins);
-      setTimeout(() => setSwapNotification(null), 5000);
+      setTimeout(() => setStolenNotification(null), 6000);
     } else if (msg.type === "game-ended") {
       setLocation(`/results/${gameId}`);
     } else if (msg.type === "player-kicked" && (msg as any).playerId === playerId) {
@@ -313,6 +321,11 @@ export default function PlayGame() {
     if (phase !== "chests" || chestsOpened) return;
     setOpenedChestIdx(idx);
     sendMessage({ type: "open-chest", chestIndex: idx, playerId });
+  };
+
+  const handleConfirmSteal = (targetId: number) => {
+    sendMessage({ type: "confirm-steal", targetPlayerId: targetId, playerId });
+    setStealPickerPlayers([]);
   };
 
   const handleAdminAuth = (e: React.FormEvent) => {
@@ -432,24 +445,24 @@ export default function PlayGame() {
         </div>
       </div>
 
-      {/* Coin Swap Alert Banner */}
+      {/* Stolen-from Alert Banner */}
       <AnimatePresence>
-        {swapNotification && (
+        {stolenNotification && (
           <motion.div
             initial={{ opacity: 0, y: -80 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -80 }}
             className="fixed top-0 inset-x-0 z-50 pointer-events-none flex justify-center"
           >
-            <div className="mt-4 mx-4 bg-purple-600 text-white rounded-2xl shadow-2xl border-2 border-purple-400 px-6 py-4 flex items-center gap-4 max-w-sm">
-              <div className="text-3xl">🔄</div>
+            <div className="mt-4 mx-4 bg-red-600 text-white rounded-2xl shadow-2xl border-2 border-red-400 px-6 py-4 flex items-center gap-4 max-w-sm">
+              <div className="text-3xl">🦹</div>
               <div>
-                <p className="font-black text-base leading-tight">Coin Swap!</p>
-                <p className="text-sm text-purple-100">
-                  <strong>{swapNotification.swappedWith}</strong> swapped coins with you!
+                <p className="font-black text-base leading-tight">You got robbed!</p>
+                <p className="text-sm text-red-100">
+                  <strong>{stolenNotification.byNickname}</strong> stole {stolenNotification.stolenAmount} coins from you!
                 </p>
-                <p className="text-sm text-purple-100">
-                  {swapNotification.yourOldCoins} → <strong>{swapNotification.yourNewCoins}</strong> coins
+                <p className="text-sm text-red-100">
+                  {stolenNotification.yourOldCoins} → <strong>{stolenNotification.yourNewCoins}</strong> coins
                 </p>
               </div>
             </div>
@@ -924,6 +937,59 @@ export default function PlayGame() {
             </motion.div>
           )}
 
+          {/* STEAL PICKER */}
+          {phase === "steal-picker" && (
+            <motion.div
+              key="steal-picker"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="w-full max-w-3xl text-center space-y-8"
+            >
+              <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.1 }}>
+                <div className="text-5xl mb-2">🦹</div>
+                <h2 className="text-4xl md:text-5xl font-black text-red-400">Steal Mode!</h2>
+                <p className="text-lg text-muted-foreground mt-2 font-medium">
+                  Pick a player — you'll steal 30% of their coins!
+                </p>
+              </motion.div>
+
+              <div className={`grid gap-4 ${
+                stealPickerPlayers.length === 1
+                  ? "grid-cols-1 max-w-xs mx-auto"
+                  : stealPickerPlayers.length === 2
+                  ? "grid-cols-2"
+                  : "grid-cols-2 sm:grid-cols-3"
+              }`}>
+                {stealPickerPlayers.map((p, i) => (
+                  <motion.button
+                    key={p.id}
+                    initial={{ y: 40, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.15 + i * 0.08 }}
+                    whileHover={{ scale: 1.05, y: -5 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleConfirmSteal(p.id)}
+                    className="group flex flex-col items-center gap-3 p-5 rounded-3xl border-2 border-red-500/40 bg-red-500/5 hover:bg-red-500/15 hover:border-red-400/70 transition-all shadow-lg focus:outline-none"
+                  >
+                    <div className="text-4xl">{p.avatar}</div>
+                    <div className="font-black text-base truncate w-full text-center">{p.nickname}</div>
+                    <div className="flex items-center gap-1.5 bg-yellow-400/15 border border-yellow-400/30 rounded-full px-3 py-1">
+                      <Coins className="w-4 h-4 text-yellow-400" />
+                      <span className="font-black font-mono text-yellow-300">{p.coins}</span>
+                    </div>
+                    <div className="text-xs text-red-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      steal ~{Math.floor(p.coins * 0.3)} coins
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+
+              <p className="text-muted-foreground text-xs uppercase tracking-widest font-medium">
+                You steal exactly 30% of their current coins
+              </p>
+            </motion.div>
+          )}
+
           {/* CHEST OPENED */}
           {phase === "chest-opened" && chestResult && (
             <motion.div
@@ -959,16 +1025,16 @@ export default function PlayGame() {
                   </motion.div>
                 )}
 
-                {chestResult.swapInfo && (
+                {chestResult.stealInfo && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-                    className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mt-3"
+                    className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 mt-3"
                   >
-                    <p className="text-purple-300 font-bold text-base">
-                      🔄 Coin swap with <strong className="text-white">{chestResult.swapInfo.withNickname}</strong>!
+                    <p className="text-orange-300 font-bold text-base">
+                      🦹 Stole from <strong className="text-white">{chestResult.stealInfo.fromNickname}</strong>!
                     </p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      You had {chestResult.swapInfo.myOldCoins} → now you have {chestResult.newTotal} coins
+                      Took {chestResult.stealInfo.stolenAmount} coins
                     </p>
                   </motion.div>
                 )}

@@ -321,18 +321,22 @@ export default function HostGame() {
                     </div>
                   </div>
 
-                  {/* Coins — Blooket-style badge, supports custom label */}
+                  {/* Coins — big Blooket-style vertical badge */}
                   <motion.div
                     key={`${player.id}-${player.coins}-${player.coinLabel}`}
-                    initial={{ scale: 1.25 }}
+                    initial={{ scale: 1.4 }}
                     animate={{ scale: 1 }}
-                    className={`flex items-center gap-1 border rounded-full px-2.5 py-1 font-black text-sm shrink-0 font-mono ${
-                      player.coinLabel
-                        ? "bg-purple-500/15 border-purple-400/40 text-purple-300"
-                        : "bg-yellow-400/15 border-yellow-400/40 text-yellow-300"
-                    }`}
+                    transition={{ type: "spring", stiffness: 420, damping: 22 }}
+                    className="flex flex-col items-center shrink-0 min-w-[58px]"
                   >
-                    {player.coinLabel ? `✨ ${player.coinLabel}` : `🪙 ${player.coins}`}
+                    <div className="text-xl leading-none">
+                      {player.coinLabel ? "✨" : "🪙"}
+                    </div>
+                    <div className={`text-2xl font-black tabular-nums font-mono leading-tight ${
+                      player.coinLabel ? "text-purple-300" : "text-yellow-300"
+                    }`}>
+                      {player.coinLabel ? player.coinLabel : player.coins}
+                    </div>
                   </motion.div>
                   {/* Pinned rank badge */}
                   {player.pinnedRank != null && (
@@ -420,8 +424,9 @@ export default function HostGame() {
                       }`}>
                         <div className="text-3xl">{p.avatar ?? "🐱"}</div>
                         <div className="font-bold text-xs truncate w-full text-center max-w-[90px]">{p.nickname}</div>
-                        <div className="flex items-center gap-1 text-xs font-black text-yellow-400">
-                          <Coins className="w-3 h-3" />{p.coins}
+                        <div className="flex flex-col items-center gap-0">
+                          <span className="text-xl leading-none">🪙</span>
+                          <span className="text-lg font-black font-mono tabular-nums text-yellow-300 leading-tight">{p.coins}</span>
                         </div>
                       </div>
                     ))}

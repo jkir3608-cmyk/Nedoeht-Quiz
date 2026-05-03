@@ -39,6 +39,7 @@ interface ActivePopup {
 const clients = new Map<WebSocket, GameClient>();
 const gameTimers = new Map<number, GameTimer>();
 const pendingChests = new Map<number, PendingChest>(); // keyed by playerId
+const pendingSteal = new Map<number, { gameId: number }>(); // keyed by stealer playerId
 const activePopups = new Map<string, ActivePopup>(); // global, persists across games
 
 function getGameClients(gameId: number) {
@@ -248,72 +249,73 @@ function pickChestReward(scale: number): RewardDef {
   let pool: RewardDef[] = [];
 
   if (scale === 2) {
+    // Mostly safe — low variance, small steal + small 2x chance
     pool = [
-      { type: "flat", coins: 10, label: "+10 Coins", weight: 20 },
-      { type: "flat", coins: 25, label: "+25 Coins", weight: 30 },
-      { type: "flat", coins: 40, label: "+40 Coins", weight: 25 },
-      { type: "flat", coins: 70, label: "+70 Coins", weight: 12 },
+      { type: "flat",         coins: 10, label: "+10 Coins",             weight: 17 },
+      { type: "flat",         coins: 25, label: "+25 Coins",             weight: 25 },
+      { type: "flat",         coins: 40, label: "+40 Coins",             weight: 22 },
+      { type: "flat",         coins: 70, label: "+70 Coins",             weight: 13 },
       { type: "percent-loss", coins: 0, multiplier: 0.9, label: "Lose 10%", weight: 8 },
       { type: "percent-loss", coins: 0, multiplier: 0.8, label: "Lose 20%", weight: 3 },
-      { type: "double", coins: 0, multiplier: 2, label: "2× Your Coins!", weight: 2 },
+      { type: "double",       coins: 0, multiplier: 2, label: "2× Your Coins!", weight: 7 },
+      { type: "steal",        coins: 0, label: "🦹 Steal 30% from a player!", weight: 5 },
     ];
     // total = 100
   } else if (scale === 3) {
-    // Avg ~40 coins, 10% chance above 100, 4% swap
+    // Higher 2x/3x, 10% steal chance
     pool = [
-      { type: "flat", coins: 5,   label: "+5 Coins",   weight: 5 },
-      { type: "flat", coins: 10,  label: "+10 Coins",  weight: 18 },
-      { type: "flat", coins: 30,  label: "+30 Coins",  weight: 22 },
-      { type: "flat", coins: 60,  label: "+60 Coins",  weight: 15 },
-      { type: "flat", coins: 120, label: "+120 Coins", weight: 6 },
-      { type: "flat", coins: 200, label: "+200 Coins", weight: 4 },
-      { type: "percent-loss", coins: 0, multiplier: 0.9, label: "Lose 10%", weight: 8 },
-      { type: "percent-loss", coins: 0, multiplier: 0.7, label: "Lose 30%", weight: 7 },
-      { type: "percent-loss", coins: 0, multiplier: 0.4, label: "Lose 60%", weight: 5 },
-      { type: "double",  coins: 0, multiplier: 2, label: "2× Your Coins!", weight: 6 },
-      { type: "triple",  coins: 0, multiplier: 3, label: "3× Your Coins!", weight: 4 },
-      { type: "swap",    coins: 0, label: "Coin Swap with a random player!", weight: 4 },
-    ];
-    // total = 104 (close enough, weighted proportionally)
-  } else if (scale === 4) {
-    pool = [
-      { type: "flat", coins: 20,  label: "+20 Coins",  weight: 8 },
-      { type: "flat", coins: 30,  label: "+30 Coins",  weight: 10 },
-      { type: "flat", coins: 60,  label: "+60 Coins",  weight: 10 },
-      { type: "flat", coins: 120, label: "+120 Coins", weight: 7 },
-      { type: "flat", coins: 200, label: "+200 Coins", weight: 5 },
-      { type: "flat-loss", coins: -80, label: "−80 Coins", weight: 5 },
-      { type: "percent-loss", coins: 0, multiplier: 0.7, label: "Lose 30%", weight: 9 },
-      { type: "percent-loss", coins: 0, multiplier: 0.5, label: "Lose 50%", weight: 8 },
-      { type: "percent-loss", coins: 0, multiplier: 0.3, label: "Lose 70%", weight: 5 },
-      { type: "double",    coins: 0, multiplier: 2, label: "2× Your Coins!",  weight: 10 },
-      { type: "triple",    coins: 0, multiplier: 3, label: "3× Your Coins!",  weight: 8 },
-      { type: "quadruple", coins: 0, multiplier: 4, label: "4× Your Coins!!", weight: 3 },
-      { type: "swap", coins: 0, label: "Coin Swap with a random player!", weight: 8 },
-      { type: "flat", coins: 10, label: "+10 Coins", weight: 4 },
+      { type: "flat",         coins: 5,   label: "+5 Coins",   weight: 3 },
+      { type: "flat",         coins: 10,  label: "+10 Coins",  weight: 12 },
+      { type: "flat",         coins: 30,  label: "+30 Coins",  weight: 17 },
+      { type: "flat",         coins: 60,  label: "+60 Coins",  weight: 11 },
+      { type: "flat",         coins: 120, label: "+120 Coins", weight: 5 },
+      { type: "flat",         coins: 200, label: "+200 Coins", weight: 3 },
+      { type: "percent-loss", coins: 0, multiplier: 0.9, label: "Lose 10%", weight: 7 },
+      { type: "percent-loss", coins: 0, multiplier: 0.7, label: "Lose 30%", weight: 6 },
+      { type: "percent-loss", coins: 0, multiplier: 0.4, label: "Lose 60%", weight: 4 },
+      { type: "double",       coins: 0, multiplier: 2, label: "2× Your Coins!",  weight: 14 },
+      { type: "triple",       coins: 0, multiplier: 3, label: "3× Your Coins!",  weight: 8 },
+      { type: "steal",        coins: 0, label: "🦹 Steal 30% from a player!", weight: 10 },
     ];
     // total = 100
+  } else if (scale === 4) {
+    // High variance — big multipliers, big risks, steal
+    pool = [
+      { type: "flat",         coins: 20,  label: "+20 Coins",  weight: 5 },
+      { type: "flat",         coins: 30,  label: "+30 Coins",  weight: 7 },
+      { type: "flat",         coins: 60,  label: "+60 Coins",  weight: 7 },
+      { type: "flat",         coins: 120, label: "+120 Coins", weight: 5 },
+      { type: "flat",         coins: 200, label: "+200 Coins", weight: 4 },
+      { type: "flat-loss",    coins: -80, label: "−80 Coins",  weight: 4 },
+      { type: "percent-loss", coins: 0, multiplier: 0.7, label: "Lose 30%", weight: 8 },
+      { type: "percent-loss", coins: 0, multiplier: 0.5, label: "Lose 50%", weight: 7 },
+      { type: "percent-loss", coins: 0, multiplier: 0.3, label: "Lose 70%", weight: 5 },
+      { type: "double",       coins: 0, multiplier: 2, label: "2× Your Coins!",  weight: 15 },
+      { type: "triple",       coins: 0, multiplier: 3, label: "3× Your Coins!",  weight: 11 },
+      { type: "quadruple",    coins: 0, multiplier: 4, label: "4× Your Coins!!", weight: 7 },
+      { type: "steal",        coins: 0, label: "🦹 Steal 30% from a player!", weight: 10 },
+    ];
+    // total = 95 — proportional weighting
   } else {
     // scale === 5 — pure chaos
     pool = [
-      { type: "flat", coins: 5,   label: "+5 Coins (really?)", weight: 7 },
-      { type: "flat", coins: 50,  label: "+50 Coins", weight: 9 },
-      { type: "flat", coins: 150, label: "+150 Coins", weight: 6 },
-      { type: "jackpot",      coins: 300, label: "🎰 JACKPOT! +300!", weight: 4 },
-      { type: "jackpot-mega", coins: 500, label: "💎 MEGA JACKPOT! +500!!", weight: 1 },
-      { type: "percent-loss", coins: 0, multiplier: 0.5, label: "Lose 50%", weight: 9 },
-      { type: "percent-loss", coins: 0, multiplier: 0.3, label: "Lose 70%", weight: 6 },
-      { type: "percent-loss", coins: 0, multiplier: 0.1, label: "Lose 90%", weight: 5 },
-      { type: "bust",      coins: 0, multiplier: 0, label: "💀 BUST! Lose Everything!", weight: 5 },
-      { type: "flat-loss", coins: -100, label: "−100 Coins",  weight: 5 },
-      { type: "double",    coins: 0, multiplier: 2, label: "2× Your Coins!", weight: 10 },
-      { type: "triple",    coins: 0, multiplier: 3, label: "3× Your Coins!", weight: 8 },
-      { type: "quadruple", coins: 0, multiplier: 4, label: "4× Your Coins!!", weight: 5 },
-      { type: "fivex",     coins: 0, multiplier: 5, label: "5× YOUR COINS!!!", weight: 2 },
-      { type: "swap", coins: 0, label: "Coin Swap with a random player!", weight: 12 },
-      { type: "flat", coins: 10, label: "+10 Coins", weight: 6 },
+      { type: "flat",         coins: 5,   label: "+5 Coins (really?)",         weight: 6 },
+      { type: "flat",         coins: 50,  label: "+50 Coins",                  weight: 8 },
+      { type: "flat",         coins: 150, label: "+150 Coins",                 weight: 5 },
+      { type: "jackpot",      coins: 300, label: "🎰 JACKPOT! +300!",          weight: 4 },
+      { type: "jackpot-mega", coins: 500, label: "💎 MEGA JACKPOT! +500!!",    weight: 1 },
+      { type: "percent-loss", coins: 0, multiplier: 0.5, label: "Lose 50%",    weight: 9 },
+      { type: "percent-loss", coins: 0, multiplier: 0.3, label: "Lose 70%",    weight: 6 },
+      { type: "percent-loss", coins: 0, multiplier: 0.1, label: "Lose 90%",    weight: 5 },
+      { type: "bust",         coins: 0, multiplier: 0, label: "💀 BUST! Lose Everything!", weight: 5 },
+      { type: "flat-loss",    coins: -100, label: "−100 Coins",                weight: 5 },
+      { type: "double",       coins: 0, multiplier: 2, label: "2× Your Coins!",    weight: 12 },
+      { type: "triple",       coins: 0, multiplier: 3, label: "3× Your Coins!",    weight: 9 },
+      { type: "quadruple",    coins: 0, multiplier: 4, label: "4× Your Coins!!",   weight: 6 },
+      { type: "fivex",        coins: 0, multiplier: 5, label: "5× YOUR COINS!!!", weight: 4 },
+      { type: "steal",        coins: 0, label: "🦹 Steal 30% from a player!",      weight: 10 },
     ];
-    // total = 100
+    // total = 95 — proportional weighting
   }
 
   const totalWeight = pool.reduce((s, r) => s + r.weight, 0);
@@ -327,16 +329,11 @@ function pickChestReward(scale: number): RewardDef {
 
 async function applyChestReward(
   player: { id: number; coins: number; nickname: string },
-  gameId: number,
+  _gameId: number,
   reward: RewardDef,
-  ws: WebSocket,
-): Promise<{
-  newCoins: number;
-  coinsChange: number;
-  swapInfo: { withNickname: string; theirOldCoins: number; myOldCoins: number } | null;
-}> {
+  _ws: WebSocket,
+): Promise<{ newCoins: number; coinsChange: number }> {
   let coinsChange = 0;
-  let swapInfo: { withNickname: string; theirOldCoins: number; myOldCoins: number } | null = null;
 
   switch (reward.type) {
     case "flat":
@@ -365,56 +362,6 @@ async function applyChestReward(
       coinsChange = -player.coins;
       break;
 
-    case "swap": {
-      const others = await db
-        .select()
-        .from(playersTable)
-        .where(
-          and(
-            eq(playersTable.gameId, gameId),
-            eq(playersTable.isKicked, false),
-            ne(playersTable.id, player.id),
-          ),
-        );
-      const eligible = others.filter((p) => p.coins !== player.coins); // pick someone different
-      const target = eligible.length > 0
-        ? eligible[Math.floor(Math.random() * eligible.length)]
-        : others.length > 0
-        ? others[Math.floor(Math.random() * others.length)]
-        : null;
-
-      if (target) {
-        const myOld = player.coins;
-        const theirOld = target.coins;
-
-        // Swap coins in DB
-        await db.update(playersTable).set({ coins: theirOld }).where(eq(playersTable.id, player.id));
-        await db.update(playersTable).set({ coins: myOld }).where(eq(playersTable.id, target.id));
-
-        // Notify the victim player directly
-        sendToPlayer(gameId, target.id, {
-          type: "coins-swapped",
-          yourOldCoins: theirOld,
-          yourNewCoins: myOld,
-          swappedWith: player.nickname,
-        });
-
-        // Broadcast coins-updated for both (so host leaderboard & other clients update)
-        broadcast(gameId, { type: "coins-updated", playerId: player.id, coins: theirOld }, ws);
-        broadcast(gameId, { type: "coins-updated", playerId: target.id, coins: myOld });
-
-        coinsChange = theirOld - myOld;
-        swapInfo = { withNickname: target.nickname, theirOldCoins: theirOld, myOldCoins: myOld };
-
-        // Return early — coins already saved for both
-        return { newCoins: theirOld, coinsChange, swapInfo };
-      } else {
-        // No other players — give a flat bonus instead
-        coinsChange = 30;
-      }
-      break;
-    }
-
     default:
       coinsChange = 0;
   }
@@ -425,7 +372,7 @@ async function applyChestReward(
     .set({ coins: newCoins })
     .where(eq(playersTable.id, player.id));
 
-  return { newCoins, coinsChange, swapInfo };
+  return { newCoins, coinsChange };
 }
 
 export function setupWebSocket(wss: WebSocketServer) {
@@ -639,23 +586,77 @@ export function setupWebSocket(wss: WebSocketServer) {
             const reward = pickChestReward(pending.skillLuckScale);
             pendingChests.delete(client.playerId);
 
-            const { newCoins, coinsChange, swapInfo } = await applyChestReward(
-              player,
-              gameId,
-              reward,
-              ws,
-            );
+            // Steal requires the player to pick a target — send picker instead of applying
+            if (reward.type === "steal") {
+              const others = await db
+                .select()
+                .from(playersTable)
+                .where(and(eq(playersTable.gameId, gameId), eq(playersTable.isKicked, false), ne(playersTable.id, player.id)));
 
-            ws.send(
-              JSON.stringify({
-                type: "chest-result",
-                reward: { ...reward, coinsChange },
-                newTotal: newCoins,
-                swapInfo,
-              }),
-            );
+              if (others.length === 0) {
+                // No one to steal from — give flat bonus instead
+                const newCoins = Math.max(0, player.coins + 30);
+                await db.update(playersTable).set({ coins: newCoins }).where(eq(playersTable.id, player.id));
+                ws.send(JSON.stringify({ type: "chest-result", reward: { ...reward, label: "+30 Coins", coinsChange: 30 }, newTotal: newCoins }));
+                broadcast(gameId, { type: "coins-updated", playerId: player.id, coins: newCoins }, ws);
+                await sendLeaderboardToHost(gameId);
+              } else {
+                pendingSteal.set(player.id, { gameId });
+                ws.send(JSON.stringify({
+                  type: "steal-picker",
+                  players: others.map(p => ({ id: p.id, nickname: p.nickname, coins: p.coins, avatar: p.avatar ?? "🐱" })),
+                }));
+              }
+              break;
+            }
 
+            const { newCoins, coinsChange } = await applyChestReward(player, gameId, reward, ws);
+            ws.send(JSON.stringify({ type: "chest-result", reward: { ...reward, coinsChange }, newTotal: newCoins }));
             broadcast(gameId, { type: "coins-updated", playerId: player.id, coins: newCoins }, ws);
+            await sendLeaderboardToHost(gameId);
+            break;
+          }
+
+          case "confirm-steal": {
+            if (client.role !== "player" || !client.playerId) break;
+
+            const ps = pendingSteal.get(client.playerId);
+            if (!ps) break;
+            pendingSteal.delete(client.playerId);
+
+            const [stealer, target] = await Promise.all([
+              db.query.playersTable.findFirst({ where: and(eq(playersTable.id, client.playerId), eq(playersTable.gameId, gameId)) }),
+              db.query.playersTable.findFirst({ where: and(eq(playersTable.id, msg.targetPlayerId), eq(playersTable.gameId, gameId), eq(playersTable.isKicked, false)) }),
+            ]);
+
+            if (!stealer || !target || target.id === stealer.id) break;
+
+            const stealAmount = Math.floor(target.coins * 0.3);
+            const newStealerCoins = stealer.coins + stealAmount;
+            const newTargetCoins = Math.max(0, target.coins - stealAmount);
+
+            await Promise.all([
+              db.update(playersTable).set({ coins: newStealerCoins }).where(eq(playersTable.id, stealer.id)),
+              db.update(playersTable).set({ coins: newTargetCoins }).where(eq(playersTable.id, target.id)),
+            ]);
+
+            ws.send(JSON.stringify({
+              type: "chest-result",
+              reward: { type: "steal", label: `🦹 Stole from ${target.nickname}!`, coinsChange: stealAmount },
+              newTotal: newStealerCoins,
+              stealInfo: { fromNickname: target.nickname, stolenAmount: stealAmount },
+            }));
+
+            sendToPlayer(gameId, target.id, {
+              type: "stolen-from",
+              byNickname: stealer.nickname,
+              stolenAmount: stealAmount,
+              yourOldCoins: target.coins,
+              yourNewCoins: newTargetCoins,
+            });
+
+            broadcast(gameId, { type: "coins-updated", playerId: stealer.id, coins: newStealerCoins }, ws);
+            broadcast(gameId, { type: "coins-updated", playerId: target.id, coins: newTargetCoins });
             await sendLeaderboardToHost(gameId);
             break;
           }
