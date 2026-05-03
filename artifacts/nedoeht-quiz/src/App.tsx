@@ -18,6 +18,8 @@ import PlayGame from "@/pages/play-game";
 import GameResults from "@/pages/game-results";
 import GameModes from "@/pages/game-modes";
 import AdminPanel from "@/pages/admin";
+import Terms from "@/pages/terms";
+import Privacy from "@/pages/privacy";
 
 const queryClient = new QueryClient();
 
@@ -39,6 +41,8 @@ function Router() {
         <Route path="/results/:gameId" component={GameResults} />
         <Route path="/modes" component={GameModes} />
         <Route path="/admin" component={AdminPanel} />
+        <Route path="/terms" component={Terms} />
+        <Route path="/privacy" component={Privacy} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

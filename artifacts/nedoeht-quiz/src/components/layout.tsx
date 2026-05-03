@@ -66,6 +66,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <main className="flex-1 flex flex-col">
         {children}
       </main>
+      {!isGameScreen && (
+        <footer className="border-t border-border/30 py-5 px-6">
+          <div className="container max-w-screen-2xl flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground/60">
+            <span>© {new Date().getFullYear()} QuizzyBlast Inc. All rights reserved.</span>
+            <div className="flex items-center gap-4">
+              <Link href="/terms">
+                <span className="hover:text-muted-foreground transition-colors cursor-pointer">Terms of Service</span>
+              </Link>
+              <Link href="/privacy">
+                <span className="hover:text-muted-foreground transition-colors cursor-pointer">Privacy Policy</span>
+              </Link>
+            </div>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

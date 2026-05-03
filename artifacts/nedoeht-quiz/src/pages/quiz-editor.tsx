@@ -34,7 +34,7 @@ const questionSchema = z.object({
   options: z.array(z.string()).length(4, "Must have exactly 4 options"),
   correctAnswer: z.number().min(0).max(3),
   explanation: z.string().optional(),
-  timeLimit: z.number().min(5).max(120).default(20),
+  timeLimit: z.number().min(0).max(120).default(0),
   points: z.number().min(1).default(10),
 });
 
@@ -73,7 +73,7 @@ export default function QuizEditor() {
 
   const qForm = useForm<z.infer<typeof questionSchema>>({
     resolver: zodResolver(questionSchema),
-    defaultValues: { text: "", options: ["", "", "", ""], correctAnswer: 0, explanation: "", timeLimit: 20, points: 10 },
+    defaultValues: { text: "", options: ["", "", "", ""], correctAnswer: 0, explanation: "", timeLimit: 0, points: 10 },
   });
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export default function QuizEditor() {
         });
       }
     } else {
-      qForm.reset({ text: "", options: ["", "", "", ""], correctAnswer: 0, explanation: "", timeLimit: 20, points: 10 });
+      qForm.reset({ text: "", options: ["", "", "", ""], correctAnswer: 0, explanation: "", timeLimit: 0, points: 10 });
     }
   }, [activeQuestionId, questions, qForm]);
 
@@ -169,7 +169,7 @@ export default function QuizEditor() {
       onSuccess: (res) => {
         if (res.length) {
           Promise.all(res.map((q: any) => 
-            createQuestion.mutateAsync({ quizId, data: { text: q.text, options: q.options, correctAnswer: q.correctAnswer, explanation: q.explanation ?? "", timeLimit: 20, points: 10, aiGenerated: true } })
+            createQuestion.mutateAsync({ quizId, data: { text: q.text, options: q.options, correctAnswer: q.correctAnswer, explanation: q.explanation ?? "", timeLimit: 0, points: 10, aiGenerated: true } })
           )).then(() => {
             toast({ title: `${res.length} AI questions added!` });
             queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey(quizId) });
@@ -361,15 +361,20 @@ export default function QuizEditor() {
                         name="timeLimit"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Time Limit (seconds)</FormLabel>
+                            <FormLabel>Time Limit</FormLabel>
                             <Select value={field.value.toString()} onValueChange={(v) => field.onChange(parseInt(v))}>
                               <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                               <SelectContent>
+                                <SelectItem value="0">⏳ No limit</SelectItem>
                                 <SelectItem value="5">5 seconds</SelectItem>
                                 <SelectItem value="10">10 seconds</SelectItem>
+                                <SelectItem value="15">15 seconds</SelectItem>
                                 <SelectItem value="20">20 seconds</SelectItem>
                                 <SelectItem value="30">30 seconds</SelectItem>
+                                <SelectItem value="45">45 seconds</SelectItem>
                                 <SelectItem value="60">60 seconds</SelectItem>
+                                <SelectItem value="90">90 seconds</SelectItem>
+                                <SelectItem value="120">2 minutes</SelectItem>
                               </SelectContent>
                             </Select>
                           </FormItem>
