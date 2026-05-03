@@ -349,7 +349,7 @@ function AdminGamePanel({
   const [popups, setPopups] = useState<PopupData[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<{ src: string; type: MediaType } | null>(null);
   const [target, setTarget] = useState<TargetOption>("all");
-  const [targetPlayerId, setTargetPlayerId] = useState<number | null>(null);
+  const [targetPlayerIds, setTargetPlayerIds] = useState<number[]>([]);
   const [size, setSize] = useState<SizeOption>("medium");
   const [duration, setDuration] = useState("0");
   const [sending, setSending] = useState(false);
@@ -412,7 +412,7 @@ function AdminGamePanel({
     const src = selectedMedia?.src ?? quickSrc;
     if (!src) { toast({ title: "No media selected", variant: "destructive" }); return; }
     if (!isConnected) { toast({ title: "Still connecting…", variant: "destructive" }); return; }
-    if (target === "player" && !targetPlayerId) { toast({ title: "Pick a player", variant: "destructive" }); return; }
+    if (target === "player" && targetPlayerIds.length === 0) { toast({ title: "Select at least one player", variant: "destructive" }); return; }
     setSending(true);
     const mediaType = selectedMedia?.type ?? (quickMode === "video-url" ? "video" : "image");
     sendMessage({
@@ -421,7 +421,7 @@ function AdminGamePanel({
       mediaSrc: src,
       mediaType,
       target: target === "player" ? "player" : target,
-      targetPlayerId: target === "player" ? targetPlayerId : undefined,
+      targetPlayerIds: target === "player" ? targetPlayerIds : undefined,
       size,
       duration: parseInt(duration) || 0,
     });
@@ -457,8 +457,21 @@ function AdminGamePanel({
   const targetLabel = (p: PopupData) => {
     if (p.target === "all") return "All";
     if (p.target === "host") return "Host";
-    const pp = players?.find(pl => pl.id === (p.target as any).playerId);
-    return pp ? `${pp.avatar ?? ""} ${pp.nickname}` : `Player #${(p.target as any).playerId}`;
+    const t = p.target as any;
+    if (t.playerIds) {
+      const names = (t.playerIds as number[])
+        .map(id => players?.find(pl => pl.id === id)?.nickname ?? `#${id}`)
+        .join(", ");
+      return `${t.playerIds.length} players: ${names}`;
+    }
+    const pp = players?.find(pl => pl.id === t.playerId);
+    return pp ? `${pp.avatar ?? ""} ${pp.nickname}` : `Player #${t.playerId}`;
+  };
+
+  const toggleTargetPlayer = (id: number) => {
+    setTargetPlayerIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
   };
 
   const TABS = [
@@ -633,26 +646,44 @@ function AdminGamePanel({
                 {([
                   ["all",    <Globe className="w-4 h-4" />,   "Everyone"] as const,
                   ["host",   <Monitor className="w-4 h-4" />, "Host only"] as const,
-                  ["player", <User className="w-4 h-4" />,    "One player"] as const,
+                  ["player", <User className="w-4 h-4" />,    "Select players"] as const,
                 ]).map(([t, icon, label]) => (
-                  <button key={t} type="button" onClick={() => { setTarget(t as TargetOption); setTargetPlayerId(null); }}
+                  <button key={t} type="button" onClick={() => { setTarget(t as TargetOption); setTargetPlayerIds([]); }}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-xs font-bold transition-all ${target === t ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/40 text-muted-foreground"}`}
                   >{icon}{label}</button>
                 ))}
               </div>
               {target === "player" && (
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                  {sortedPlayers.map(p => (
-                    <button key={p.id} type="button" onClick={() => setTargetPlayerId(p.id)}
-                      className={`flex items-center gap-2 p-2.5 rounded-lg border-2 text-left transition-all ${targetPlayerId === p.id ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}
-                    >
-                      <span className="text-xl shrink-0">{p.avatar ?? "🐱"}</span>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold truncate">{p.nickname}</p>
-                        <p className="text-[10px] text-muted-foreground">🪙 {p.coins}</p>
-                      </div>
-                    </button>
-                  ))}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{targetPlayerIds.length > 0 ? `${targetPlayerIds.length} selected` : "Select players"}</span>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setTargetPlayerIds(sortedPlayers.map(p => p.id))}
+                        className="hover:text-primary transition-colors font-medium">All</button>
+                      <span>·</span>
+                      <button type="button" onClick={() => setTargetPlayerIds([])}
+                        className="hover:text-destructive transition-colors font-medium">None</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {sortedPlayers.map(p => {
+                      const checked = targetPlayerIds.includes(p.id);
+                      return (
+                        <button key={p.id} type="button" onClick={() => toggleTargetPlayer(p.id)}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border-2 text-left transition-all ${checked ? "border-primary bg-primary/10 shadow-sm shadow-primary/20" : "border-border hover:border-primary/40"}`}
+                        >
+                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${checked ? "bg-primary border-primary" : "border-muted-foreground"}`}>
+                            {checked && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                          <span className="text-xl shrink-0">{p.avatar ?? "🐱"}</span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate">{p.nickname}</p>
+                            <p className="text-[10px] text-muted-foreground">🪙 {p.coins}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -693,7 +724,7 @@ function AdminGamePanel({
             {/* Push button */}
             <Button
               onClick={handleSendPopup}
-              disabled={(!selectedMedia?.src && !quickSrc) || sending || (target === "player" && !targetPlayerId)}
+              disabled={(!selectedMedia?.src && !quickSrc) || sending || (target === "player" && targetPlayerIds.length === 0)}
               size="lg"
               className="w-full h-14 text-base font-bold gap-2 bg-gradient-to-r from-primary to-secondary border-0 shadow-lg shadow-primary/30"
             >

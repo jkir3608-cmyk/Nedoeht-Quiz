@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export interface PopupData {
   id: string;
-  target: "all" | "host" | { gameId: number; playerId: number };
+  target: "all" | "host" | { gameId: number; playerId: number } | { gameId: number; playerIds: number[] };
   mediaType: "image" | "video";
   mediaSrc: string;
   size: "small" | "medium" | "fullscreen";

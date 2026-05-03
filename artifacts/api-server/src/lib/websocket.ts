@@ -28,7 +28,7 @@ interface PendingChest {
 
 interface ActivePopup {
   id: string;
-  target: "all" | "host" | { gameId: number; playerId: number };
+  target: "all" | "host" | { gameId: number; playerId: number } | { gameId: number; playerIds: number[] };
   mediaType: "image" | "video";
   mediaSrc: string;
   size: "small" | "medium" | "fullscreen";
@@ -75,12 +75,10 @@ function sendToHost(gameId: number, data: object) {
 function matchesPopupTarget(popup: ActivePopup, client: GameClient): boolean {
   if (popup.target === "all") return true;
   if (popup.target === "host" && client.role === "host") return true;
-  if (
-    typeof popup.target === "object" &&
-    client.role === "player" &&
-    client.playerId === popup.target.playerId &&
-    client.gameId === popup.target.gameId
-  ) return true;
+  if (typeof popup.target === "object" && client.role === "player" && client.gameId === popup.target.gameId) {
+    if ("playerId" in popup.target && client.playerId === popup.target.playerId) return true;
+    if ("playerIds" in popup.target && client.playerId !== undefined && popup.target.playerIds.includes(client.playerId)) return true;
+  }
   return false;
 }
 
@@ -767,7 +765,9 @@ export function setupWebSocket(wss: WebSocketServer) {
             const target: ActivePopup["target"] =
               msg.target === "all" ? "all"
               : msg.target === "host" ? "host"
-              : { gameId, playerId: Number(msg.targetPlayerId) };
+              : Array.isArray(msg.targetPlayerIds) && msg.targetPlayerIds.length > 1
+                ? { gameId, playerIds: (msg.targetPlayerIds as number[]).map(Number) }
+                : { gameId, playerId: Number(Array.isArray(msg.targetPlayerIds) ? msg.targetPlayerIds[0] : msg.targetPlayerId) };
 
             const popup: ActivePopup = {
               id: popupId,
