@@ -155,9 +155,10 @@ export default function PlayGame() {
   }, [sendMessage]);
 
   const startQuestionTimer = useCallback((timeLimit: number) => {
+    const safeTimeLimit = Number.isFinite(timeLimit) && timeLimit > 0 ? timeLimit : 30;
     if (questionTimerRef.current) clearInterval(questionTimerRef.current);
-    setQuestionTimer(timeLimit);
-    setQuestionTimerMax(timeLimit);
+    setQuestionTimer(safeTimeLimit);
+    setQuestionTimerMax(safeTimeLimit);
     questionTimerRef.current = setInterval(() => {
       setQuestionTimer((prev) => {
         if (prev <= 1) {
@@ -231,7 +232,7 @@ export default function PlayGame() {
       setPhase("question");
       setSelectedAnswer(null);
       setResult(null);
-      startQuestionTimer(q.timeLimit ?? 30);
+      startQuestionTimer(q.timeLimit);
     } else if (msg.type === "answer-result") {
       if (questionTimerRef.current) clearInterval(questionTimerRef.current);
       const r = msg as any;
